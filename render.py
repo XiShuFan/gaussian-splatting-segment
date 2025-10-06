@@ -30,13 +30,19 @@ except:
 def render_set(model_path, name, iteration, views, gaussians, pipeline, background, train_test_exp, separate_sh):
     render_path = os.path.join(model_path, name, "ours_{}".format(iteration), "renders")
     gts_path = os.path.join(model_path, name, "ours_{}".format(iteration), "gt")
+    # 像素对应高斯id
+    pixel_gaussian_path = os.path.join(model_path, name, "ours_{}".format(iteration), "pixel_gaussian")
 
     makedirs(render_path, exist_ok=True)
     makedirs(gts_path, exist_ok=True)
+    makedirs(pixel_gaussian_path, exist_ok=True)
 
     for idx, view in enumerate(tqdm(views, desc="Rendering progress")):
-        rendering = render(view, gaussians, pipeline, background, use_trained_exp=train_test_exp, separate_sh=separate_sh)["render"]
+        render_result = render(view, gaussians, pipeline, background, use_trained_exp=train_test_exp, separate_sh=separate_sh)
+        rendering = render_result["render"]
         gt = view.original_image[0:3, :, :]
+        pixel_gaussian_ids = render_result["pixel_gaussian_ids"]
+        pixel_gaussian_counts = render_result["pixel_gaussian_counts"]
 
         if args.train_test_exp:
             rendering = rendering[..., rendering.shape[-1] // 2:]
@@ -44,6 +50,9 @@ def render_set(model_path, name, iteration, views, gaussians, pipeline, backgrou
 
         torchvision.utils.save_image(rendering, os.path.join(render_path, '{0:05d}'.format(idx) + ".png"))
         torchvision.utils.save_image(gt, os.path.join(gts_path, '{0:05d}'.format(idx) + ".png"))
+        np.save(os.path.join(pixel_gaussian_path, '{0:05d}'.format(idx) + "_pixel_gaussian_ids.npy"), pixel_gaussian_ids.cpu().numpy())
+        np.save(os.path.join(pixel_gaussian_path, '{0:05d}'.format(idx) + "_pixel_gaussian_counts.npy"), pixel_gaussian_counts.cpu().numpy())
+
 
 def render_sets(dataset : ModelParams, iteration : int, pipeline : PipelineParams, skip_train : bool, skip_test : bool, separate_sh: bool):
     with torch.no_grad():
