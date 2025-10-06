@@ -51,8 +51,9 @@ def render_set(model_path, name, iteration, views, gaussians, pipeline, backgrou
 
         torchvision.utils.save_image(rendering, os.path.join(render_path, '{0:05d}'.format(idx) + ".png"))
         torchvision.utils.save_image(gt, os.path.join(gts_path, '{0:05d}'.format(idx) + ".png"))
-        np.save(os.path.join(pixel_gaussian_path, '{0:05d}'.format(idx) + "_pixel_gaussian_ids.npy"), pixel_gaussian_ids.cpu().numpy())
-        np.save(os.path.join(pixel_gaussian_path, '{0:05d}'.format(idx) + "_pixel_gaussian_counts.npy"), pixel_gaussian_counts.cpu().numpy())
+        np.savez_compressed(os.path.join(pixel_gaussian_path, '{0:05d}'.format(idx) + "_pixel_gaussian.npz"),
+                            pixel_gaussian_ids=pixel_gaussian_ids.cpu().numpy(),
+                            pixel_gaussian_counts=pixel_gaussian_counts.cpu().numpy())
 
 
 def render_sets(dataset : ModelParams, iteration : int, pipeline : PipelineParams, skip_train : bool, skip_test : bool, separate_sh: bool):
