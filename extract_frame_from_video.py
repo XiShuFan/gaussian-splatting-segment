@@ -38,31 +38,32 @@ def extract_local_indices_from_grays(grays, frames_per_segment, downsize=(64,64)
     if n <= frames_per_segment:
         return list(range(n))
 
-    # 先计算每帧的特征向量（小矩阵）以加速差异计算
-    feats = [ _frame_feature(g, downsize=downsize) for g in grays ]
+    # 先计算每帧的特征向量矩阵 (n, d)
+    feats = np.stack([_frame_feature(g, downsize=downsize) for g in grays], axis=0)
 
+    # 初始化
     selected = [0]
-    remaining = set(range(1, n))
+    remaining = np.ones(n, dtype=bool)
+    remaining[0] = False
 
-    # 贪心选择：每次选择与已选帧组中最近距离的最远帧
-    while len(selected) < frames_per_segment and remaining:
-        max_diff = -1.0
-        max_idx = -1
-        # 为 speed：将 selected list 的 feat 先取出
-        sel_feats = [feats[i] for i in selected]
-        for idx in remaining:
-            f = feats[idx]
-            # compute min distance to selected set (L1 平均)
-            # use mean absolute difference for speed/robustness
-            diffs = [ np.mean(np.abs(f - s)) for s in sel_feats ]
-            mind = min(diffs)
-            if mind > max_diff:
-                max_diff = mind
-                max_idx = idx
-        if max_idx == -1:
+    # 初始 min_dists
+    min_dists = np.full(n, np.inf, dtype=np.float32)
+    last_feat = feats[0]
+
+    while len(selected) < frames_per_segment and remaining.any():
+        # 计算当前已选帧到所有点的距离，并更新最小距离
+        dists = np.mean(np.abs(feats - last_feat), axis=1)
+        min_dists = np.minimum(min_dists, dists)
+
+        # 在未选中的帧中找到最远点
+        min_dists_masked = np.where(remaining, min_dists, -1.0)
+        next_idx = int(np.argmax(min_dists_masked))
+        if min_dists_masked[next_idx] < 0:
             break
-        selected.append(max_idx)
-        remaining.remove(max_idx)
+
+        selected.append(next_idx)
+        remaining[next_idx] = False
+        last_feat = feats[next_idx]
 
     selected.sort()
     return selected
