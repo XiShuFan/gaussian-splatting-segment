@@ -5,11 +5,11 @@ from utils.ply_utils import load_gaussian_ply, save_gaussian_ply
 
 # 排序后的高斯
 pixel_gaussian_folder = "/media/why/新加卷/xsf/商品3DGS/scene/undistorted/3dgs/train/ours_30000/pixel_gaussian"
-pixel_gaussian_list = os.listdir(pixel_gaussian_folder).sort()
+pixel_gaussian_list = sorted(os.listdir(pixel_gaussian_folder))
 
 # 排序后的前景分割
 salient_mask_folder = "/media/why/新加卷/xsf/U-2-Net/test_data/u2net_results"
-salient_mask_list = os.listdir(salient_mask_folder).sort()
+salient_mask_list = sorted(os.listdir(salient_mask_folder))
 
 salient_gs_ids = set()
 
