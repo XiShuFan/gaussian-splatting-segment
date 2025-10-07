@@ -42,7 +42,7 @@ for salient_mask, pixel_gaussian in zip(salient_mask_list, pixel_gaussian_list):
 
     salient_gs_ids = set.union(salient_gs_ids, result_set)
 
-gs_data = load_gaussian_ply("")
+gs_data = load_gaussian_ply("/media/why/新加卷/xsf/商品3DGS/scene/undistorted/3dgs/point_cloud/iteration_30000/point_cloud.ply")
 
 # 转换为 numpy 数组（整数类型）
 index_array = np.array(list(salient_gs_ids), dtype=np.int64)
@@ -58,4 +58,4 @@ salient_gs_data = {
     "rotation": gs_data["rotation"][index_array],
 }
 
-save_gaussian_ply(salient_gs_data, "")
+save_gaussian_ply(salient_gs_data, "/media/why/新加卷/xsf/商品3DGS/scene/undistorted/3dgs/point_cloud/iteration_30000/salient.ply")
