@@ -3,6 +3,7 @@ import os
 from PIL import Image
 from utils.ply_utils import load_gaussian_ply, save_gaussian_ply
 from concurrent.futures import ProcessPoolExecutor, as_completed
+from sklearn.neighbors import NearestNeighbors
 
 def process_one_pair(args):
     salient_mask_path, pixel_gaussian_path = args
@@ -23,11 +24,13 @@ def process_one_pair(args):
 
     # 找到非黑像素的 mask
     # (H, W)，True 表示非黑色像素
-    non_black_mask = np.any(img_np != 0, axis=-1)
+    non_black_mask = np.any(img_np >= 230, axis=-1)
 
     # 使用 non_black_mask 过滤像素
     # (N,)
     valid_counts = pixel_gaussian_counts[non_black_mask]
+    # TODO 限定10个高斯
+    valid_counts[:] = 10
     # (N, MAX_GAUSSPERPIXEL)
     valid_ids = pixel_gaussian_ids[non_black_mask, :]
 
@@ -59,6 +62,53 @@ def parallel_collect_ids_mp(salient_mask_folder, pixel_gaussian_folder):
 
     return salient_gs_ids
 
+# 基于欧氏距离的过滤
+def filter_by_euclidean_distance(salient_gs_data):
+    """
+    优点：快速去除远离主体的伪影。
+    缺点：如果主体本身很分散（比如多个物体），会损失部分有效点。
+    """
+    positions = salient_gs_data["position"]
+    center = np.mean(positions, axis=0)
+    distances = np.linalg.norm(positions - center, axis=1)
+    # 去掉最远的5%
+    threshold = np.percentile(distances, 95)
+    mask = distances < threshold
+    filtered_salient_gs_data = {k: v[mask] for k, v in salient_gs_data.items()}
+    return filtered_salient_gs_data
+
+
+# 基于密度过滤
+def filter_by_density(salient_gs_data):
+    """
+    优点：可以保留多个主体。
+    缺点：运行稍慢。
+    """
+    positions = salient_gs_data["position"]
+    nbrs = NearestNeighbors(n_neighbors=10).fit(positions)
+    distances, _ = nbrs.kneighbors(positions)
+    mean_d = distances[:, 1:].mean(axis=1)
+
+    # 过滤掉局部稀疏区域的点（密度太低的）
+    mask = mean_d < np.percentile(mean_d, 95)
+    filtered_salient_gs_data = {k: v[mask] for k, v in salient_gs_data.items()}
+    return filtered_salient_gs_data
+
+
+# 基于前景光栅化次数
+def filter_by_mask_consistency():
+    """
+    多视角 mask（比如从不同角度的前景掩码），可以做一个投影一致性检查：
+    对于每个高斯点，看它在多少视角中被投射进前景区域，少于一定比例的就丢掉。
+    优点：能精准剔除误匹配点。
+    缺点：需要相机参数、多视角 mask。
+    """
+
+    # for gaussian in gaussians:
+    #     count = sum(is_in_foreground_in_view(gaussian, view) for view in views)
+    #     if count / len(views) < 0.3:
+    #         drop(gaussian)
+    pass
 
 
 if __name__ == "__main__":
@@ -82,5 +132,11 @@ if __name__ == "__main__":
         "scale": gs_data["scale"][index_array],
         "rotation": gs_data["rotation"][index_array],
     }
+
+    # 基于几何空间的伪影清理
+    salient_gs_data = filter_by_euclidean_distance(salient_gs_data)
+    salient_gs_data = filter_by_density(salient_gs_data)
+
+    # TODO 结合 mask 投影一致性验证
 
     save_gaussian_ply(salient_gs_data, "/media/why/新加卷/xsf/商品3DGS/scene/undistorted/3dgs/point_cloud/iteration_30000/salient.ply")
