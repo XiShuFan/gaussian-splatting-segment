@@ -4,16 +4,17 @@ from PIL import Image
 from utils.ply_utils import load_gaussian_ply, save_gaussian_ply
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from sklearn.neighbors import NearestNeighbors
+from utils.sh_color_utils import rgb_to_fdc, fdc_to_rgb
 
 def process_one_pair(args):
-    salient_mask_path, pixel_gaussian_path = args
-    print(salient_mask_path, pixel_gaussian_path)
+    salient_mask_path, pixel_gaussian_path, gs_count = args
+    # print(salient_mask_path, pixel_gaussian_path)
 
     data = np.load(pixel_gaussian_path)
     pixel_gaussian_ids = data["pixel_gaussian_ids"]
     pixel_gaussian_counts = data["pixel_gaussian_counts"]
 
-    img = Image.open(salient_mask_path)
+    img = Image.open(salient_mask_path).convert("RGB")
     width, height = img.size
     # 转换成 numpy 数组（H, W, C）
     img_np = np.array(img)[:, :, :3]
@@ -29,8 +30,8 @@ def process_one_pair(args):
     # 使用 non_black_mask 过滤像素
     # (N,)
     valid_counts = pixel_gaussian_counts[non_black_mask]
-    # TODO 限定10个高斯
-    valid_counts[:] = 10
+    # TODO 限定像素对应的高斯数量
+    valid_counts[:] = gs_count
     # (N, MAX_GAUSSPERPIXEL)
     valid_ids = pixel_gaussian_ids[non_black_mask, :]
 
@@ -42,7 +43,7 @@ def process_one_pair(args):
     return set(all_valid_ids.tolist())
 
 
-def parallel_collect_ids_mp(salient_mask_folder, pixel_gaussian_folder):
+def parallel_collect_ids_mp(salient_mask_folder, pixel_gaussian_folder, gs_count):
     # 排序后的前景分割
     salient_mask_list = sorted(os.listdir(salient_mask_folder))
     # 排序后的高斯
@@ -50,7 +51,7 @@ def parallel_collect_ids_mp(salient_mask_folder, pixel_gaussian_folder):
 
     salient_gs_ids = set()
     file_pairs = [
-        (os.path.join(salient_mask_folder, sm), os.path.join(pixel_gaussian_folder, pg))
+        (os.path.join(salient_mask_folder, sm), os.path.join(pixel_gaussian_folder, pg), gs_count)
         for sm, pg in zip(salient_mask_list, pixel_gaussian_list)
     ]
 
@@ -75,7 +76,7 @@ def filter_by_euclidean_distance(salient_gs_data):
     threshold = np.percentile(distances, 95)
     mask = distances < threshold
     filtered_salient_gs_data = {k: v[mask] for k, v in salient_gs_data.items()}
-    return filtered_salient_gs_data
+    return filtered_salient_gs_data, mask
 
 
 # 基于密度过滤
@@ -92,7 +93,7 @@ def filter_by_density(salient_gs_data):
     # 过滤掉局部稀疏区域的点（密度太低的）
     mask = mean_d < np.percentile(mean_d, 95)
     filtered_salient_gs_data = {k: v[mask] for k, v in salient_gs_data.items()}
-    return filtered_salient_gs_data
+    return filtered_salient_gs_data, mask
 
 
 # 基于前景光栅化次数
@@ -112,11 +113,11 @@ def filter_by_mask_consistency():
 
 
 if __name__ == "__main__":
+    # 前景高斯索引
     pixel_gaussian_folder = "/media/why/新加卷/xsf/商品3DGS/scene/undistorted/3dgs/train/ours_30000/pixel_gaussian"
     salient_mask_folder = "/media/why/新加卷/xsf/U-2-Net/test_data/u2net_results"
-
-    salient_gs_ids = parallel_collect_ids_mp(salient_mask_folder, pixel_gaussian_folder)
-
+    salient_gs_ids = parallel_collect_ids_mp(salient_mask_folder, pixel_gaussian_folder, gs_count=10)
+    # 高斯点云
     gs_data = load_gaussian_ply("/media/why/新加卷/xsf/商品3DGS/scene/undistorted/3dgs/point_cloud/iteration_30000/point_cloud.ply")
 
     # 转换为 numpy 数组（整数类型）
@@ -134,9 +135,44 @@ if __name__ == "__main__":
     }
 
     # 基于几何空间的伪影清理
-    salient_gs_data = filter_by_euclidean_distance(salient_gs_data)
-    salient_gs_data = filter_by_density(salient_gs_data)
+    salient_gs_data, mask = filter_by_euclidean_distance(salient_gs_data)
+    index_array = index_array[mask]
+    salient_gs_data, mask = filter_by_euclidean_distance(salient_gs_data)
+    index_array = index_array[mask]
+    salient_gs_data, mask = filter_by_euclidean_distance(salient_gs_data)
+    index_array = index_array[mask]
+    salient_gs_data, mask = filter_by_euclidean_distance(salient_gs_data)
+    index_array = index_array[mask]
+    salient_gs_data, mask = filter_by_density(salient_gs_data)
+    index_array = index_array[mask]
 
     # TODO 结合 mask 投影一致性验证
 
     save_gaussian_ply(salient_gs_data, "/media/why/新加卷/xsf/商品3DGS/scene/undistorted/3dgs/point_cloud/iteration_30000/salient.ply")
+    
+    # 衣服高斯索引
+    cloth_pixel_gaussian_folder = "/media/why/新加卷/xsf/商品3DGS/scene/undistorted/part_seg/cloth/pixel_gaussian"
+    cloth_mask_folder = "/media/why/新加卷/xsf/商品3DGS/scene/undistorted/part_seg/cloth/mask"
+    cloth_gs_ids = parallel_collect_ids_mp(cloth_mask_folder, cloth_pixel_gaussian_folder, gs_count=2)
+    cloth_index_array = np.array(list(cloth_gs_ids), dtype=np.int64)
+    # 与前景高斯做交集
+    cloth_index_array = np.intersect1d(cloth_index_array, index_array)
+    cloth_gs_data = {
+        "position": gs_data["position"][cloth_index_array],
+        "normal": gs_data["normal"][cloth_index_array],
+        "f_dc": gs_data["f_dc"][cloth_index_array],
+        "f_rest": gs_data["f_rest"][cloth_index_array],
+        "opacity": gs_data["opacity"][cloth_index_array],
+        "scale": gs_data["scale"][cloth_index_array],
+        "rotation": gs_data["rotation"][cloth_index_array],
+    }
+    save_gaussian_ply(cloth_gs_data, "/media/why/新加卷/xsf/商品3DGS/scene/undistorted/3dgs/point_cloud/iteration_30000/cloth.ply")
+    
+    
+    # 衣服换色
+    cloth_mask = np.isin(index_array, cloth_index_array)
+    mean_sh_color = np.mean(cloth_gs_data["f_dc"], axis=0)
+    print(fdc_to_rgb(mean_sh_color))
+    new_color = rgb_to_fdc(np.asarray([0, 1, 0]))
+    salient_gs_data["f_dc"][cloth_mask] = new_color
+    save_gaussian_ply(salient_gs_data, "/media/why/新加卷/xsf/商品3DGS/scene/undistorted/3dgs/point_cloud/iteration_30000/change_color.ply")
