@@ -47,7 +47,7 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
         prefiltered=False,
         debug=pipe.debug,
         antialiasing=pipe.antialiasing,
-        MAX_GAUSSPERPIXEL=50  # 每个像素对应的高斯数量
+        MAX_GAUSSPERPIXEL=20  # 每个像素对应的高斯数量
     )
 
     rasterizer = GaussianRasterizer(raster_settings=raster_settings)
