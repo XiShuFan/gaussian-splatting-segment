@@ -12,7 +12,7 @@
 import os
 import torch
 from random import randint
-from utils.loss_utils import l1_loss, ssim
+from utils.loss_utils import l1_loss, ssim, masked_l1_loss
 from gaussian_renderer import render, network_gui
 import sys
 from scene import Scene, GaussianModel
@@ -117,11 +117,13 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
 
         # Loss
         gt_image = viewpoint_cam.original_image.cuda()
-        Ll1 = l1_loss(image, gt_image)
+        gt_mask = viewpoint_cam.original_mask.cuda()
+        Ll1 = masked_l1_loss(image, gt_image, gt_mask)
+        
         if FUSED_SSIM_AVAILABLE:
-            ssim_value = fused_ssim(image.unsqueeze(0), gt_image.unsqueeze(0))
+            ssim_value = fused_ssim(image.unsqueeze(0), gt_image.unsqueeze(0), gt_mask.unsqueeze(0))
         else:
-            ssim_value = ssim(image, gt_image)
+            ssim_value = ssim(image, gt_image, gt_mask)
 
         loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim_value)
 
@@ -134,6 +136,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
 
             Ll1depth_pure = torch.abs((invDepth  - mono_invdepth) * depth_mask).mean()
             Ll1depth = depth_l1_weight(iteration) * Ll1depth_pure 
+            print("[Warning] depth loss without mask")
             loss += Ll1depth
             Ll1depth = Ll1depth.item()
         else:

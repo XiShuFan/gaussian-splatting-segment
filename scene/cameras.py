@@ -13,11 +13,11 @@ import torch
 from torch import nn
 import numpy as np
 from utils.graphics_utils import getWorld2View2, getProjectionMatrix
-from utils.general_utils import PILtoTorch
+from utils.general_utils import PILtoTorch, load_mask_as_tensor
 import cv2
 
 class Camera(nn.Module):
-    def __init__(self, resolution, colmap_id, R, T, FoVx, FoVy, depth_params, image, invdepthmap,
+    def __init__(self, resolution, colmap_id, R, T, FoVx, FoVy, depth_params, image, mask, invdepthmap,
                  image_name, uid,
                  trans=np.array([0.0, 0.0, 0.0]), scale=1.0, data_device = "cuda",
                  train_test_exp = False, is_test_dataset = False, is_test_view = False
@@ -41,6 +41,8 @@ class Camera(nn.Module):
 
         resized_image_rgb = PILtoTorch(image, resolution)
         gt_image = resized_image_rgb[:3, ...]
+        resized_image_mask = load_mask_as_tensor(mask, resolution)
+        gt_mask = resized_image_mask[:3, ...]
         self.alpha_mask = None
         if resized_image_rgb.shape[0] == 4:
             self.alpha_mask = resized_image_rgb[3:4, ...].to(self.data_device)
@@ -54,6 +56,7 @@ class Camera(nn.Module):
                 self.alpha_mask[..., self.alpha_mask.shape[-1] // 2:] = 0
 
         self.original_image = gt_image.clamp(0.0, 1.0).to(self.data_device)
+        self.original_mask = gt_mask.clamp(0.0, 1.0).to(self.data_device)
         self.image_width = self.original_image.shape[2]
         self.image_height = self.original_image.shape[1]
 

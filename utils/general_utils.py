@@ -26,6 +26,12 @@ def PILtoTorch(pil_image, resolution):
     else:
         return resized_image.unsqueeze(dim=-1).permute(2, 0, 1)
 
+def load_mask_as_tensor(mask_image, resolution):
+    mask_pil = mask_image.resize(resolution)
+    # shape [1, H, W]
+    mask_tensor = torch.from_numpy(np.array(mask_pil, dtype=np.float32)).unsqueeze(0) / 255.0
+    return mask_tensor
+
 def get_expon_lr_func(
     lr_init, lr_final, lr_delay_steps=0, lr_delay_mult=1.0, max_steps=1000000
 ):

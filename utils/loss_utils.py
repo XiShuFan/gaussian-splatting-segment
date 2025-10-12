@@ -40,6 +40,27 @@ class FusedSSIMMap(torch.autograd.Function):
 def l1_loss(network_output, gt):
     return torch.abs((network_output - gt)).mean()
 
+def masked_l1_loss(network_output, gt, mask):
+    """
+    Args:
+        network_output: 预测结果, shape = [B, C, H, W] 或任意形状
+        gt:             GT图像, shape 与 network_output 相同
+        mask:           分割mask, shape 可为 [B, 1, H, W] 或 [B, H, W]
+                        值在 [0, 1] 范围内，用作加权系数
+    Returns:
+        加权后的 L1 loss (float)
+    """
+    # 保证 mask 可广播到输出维度
+    while mask.dim() < network_output.dim():
+        mask = mask.unsqueeze(1)
+    
+    diff = torch.abs(network_output - gt)
+    weighted_diff = diff * mask
+
+    # 避免 mask 全为 0 的情况导致 NaN
+    loss = weighted_diff.sum() / (mask.sum() + 1e-8)
+    return loss
+
 def l2_loss(network_output, gt):
     return ((network_output - gt) ** 2).mean()
 
@@ -53,7 +74,7 @@ def create_window(window_size, channel):
     window = Variable(_2D_window.expand(channel, 1, window_size, window_size).contiguous())
     return window
 
-def ssim(img1, img2, window_size=11, size_average=True):
+def ssim(img1, img2, mask=None, window_size=11, size_average=True):
     channel = img1.size(-3)
     window = create_window(window_size, channel)
 
@@ -61,9 +82,9 @@ def ssim(img1, img2, window_size=11, size_average=True):
         window = window.cuda(img1.get_device())
     window = window.type_as(img1)
 
-    return _ssim(img1, img2, window, window_size, channel, size_average)
+    return _ssim(img1, img2, window, window_size, channel, size_average, mask)
 
-def _ssim(img1, img2, window, window_size, channel, size_average=True):
+def _ssim(img1, img2, window, window_size, channel, size_average=True, mask=None):
     mu1 = F.conv2d(img1, window, padding=window_size // 2, groups=channel)
     mu2 = F.conv2d(img2, window, padding=window_size // 2, groups=channel)
 
@@ -80,10 +101,27 @@ def _ssim(img1, img2, window, window_size, channel, size_average=True):
 
     ssim_map = ((2 * mu1_mu2 + C1) * (2 * sigma12 + C2)) / ((mu1_sq + mu2_sq + C1) * (sigma1_sq + sigma2_sq + C2))
 
-    if size_average:
-        return ssim_map.mean()
+    # === 掩码区域约束 ===
+    if mask is not None:
+        # 确保 mask 维度匹配
+        if mask.dim() == 3:
+            mask = mask.unsqueeze(1)
+        mask = F.interpolate(mask, size=ssim_map.shape[-2:], mode="nearest")
+
+        masked_ssim = ssim_map * mask
+        if size_average:
+            return masked_ssim.sum() / (mask.sum() + 1e-8)
+        else:
+            # 每张图像单独平均
+            B = img1.size(0)
+            return (masked_ssim.view(B, -1).sum(dim=1) /
+                    (mask.view(B, -1).sum(dim=1) + 1e-8))
     else:
-        return ssim_map.mean(1).mean(1).mean(1)
+        # 没有 mask 就走标准流程
+        if size_average:
+            return ssim_map.mean()
+        else:
+            return ssim_map.mean(1).mean(1).mean(1)
 
 
 def fast_ssim(img1, img2):
