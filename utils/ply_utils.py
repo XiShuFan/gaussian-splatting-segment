@@ -41,7 +41,11 @@ def load_gaussian_ply(ply_path: str):
 
     # f_rest_0 ~ f_rest_44（45维） or f_rest_0 ~ f_rest_...（可变）
     f_rest_fields = [n for n in names if n.startswith("f_rest_")]
-    f_rest = np.stack([v[name] for name in f_rest_fields], axis=-1)
+    f_rest = [v[name] for name in f_rest_fields]
+    if len(f_rest) != 0:
+        f_rest = np.stack(f_rest, axis=-1)
+    else:
+        f_rest = None
 
     # 透明度
     opacity = np.array(v["opacity"])
@@ -57,14 +61,14 @@ def load_gaussian_ply(ply_path: str):
         "position": pos,
         "normal": normal,
         "f_dc": f_dc,
-        "f_rest": f_rest,
         "opacity": opacity,
         "scale": scale,
         "rotation": rotation,
     }
+    if f_rest != None:
+        result["f_rest"] = f_rest
 
     print(f"Loaded {len(pos)} Gaussian points from {ply_path}")
-    print(f"f_rest dim = {f_rest.shape[1]}")
     return result
 
 
@@ -75,13 +79,17 @@ def save_gaussian_ply(result, save_path: str):
     pos = result["position"]
     normal = result["normal"]
     f_dc = result["f_dc"]
-    f_rest = result["f_rest"]
+    if "f_rest" in result:
+        f_rest = result["f_rest"]
+        n_rest = f_rest.shape[1]
+    else:
+        f_rest = None
+        n_rest = 0
     opacity = result["opacity"]
     scale = result["scale"]
     rotation = result["rotation"]
 
     n_points = pos.shape[0]
-    n_rest = f_rest.shape[1]
 
     # 构造 PLY 文件字段描述
     vertex_dtype = [
