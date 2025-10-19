@@ -5,6 +5,7 @@ from utils.ply_utils import load_gaussian_ply, save_gaussian_ply
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from sklearn.neighbors import NearestNeighbors
 from utils.sh_color_utils import rgb_to_fdc, fdc_to_rgb
+import copy
 
 def process_one_pair(args):
     salient_mask_path, pixel_gaussian_path, gs_count = args
@@ -113,12 +114,14 @@ def filter_by_mask_consistency():
 
 
 if __name__ == "__main__":
+    PATH = "/media/why/新加卷/xsf/商品3DGS/scene/undistorted/test"
+    
     # 前景高斯索引
-    pixel_gaussian_folder = "/media/why/新加卷/xsf/商品3DGS/scene/undistorted/3dgs/train/ours_30000/pixel_gaussian"
-    salient_mask_folder = "/media/why/新加卷/xsf/U-2-Net/test_data/u2net_results"
-    salient_gs_ids = parallel_collect_ids_mp(salient_mask_folder, pixel_gaussian_folder, gs_count=10)
+    pixel_gaussian_folder = os.path.join(PATH, "train/ours_7000/pixel_gaussian")
+    salient_mask_folder = "/media/why/新加卷/xsf/商品3DGS/scene/undistorted/masks"
+    salient_gs_ids = parallel_collect_ids_mp(salient_mask_folder, pixel_gaussian_folder, gs_count=30)
     # 高斯点云
-    gs_data = load_gaussian_ply("/media/why/新加卷/xsf/商品3DGS/scene/undistorted/3dgs/point_cloud/iteration_30000/point_cloud.ply")
+    gs_data = load_gaussian_ply(os.path.join(PATH, "point_cloud/iteration_7000/point_cloud.ply"))
 
     # 转换为 numpy 数组（整数类型）
     index_array = np.array(list(salient_gs_ids), dtype=np.int64)
@@ -128,51 +131,62 @@ if __name__ == "__main__":
         "position": gs_data["position"][index_array],
         "normal": gs_data["normal"][index_array],
         "f_dc": gs_data["f_dc"][index_array],
-        "f_rest": gs_data["f_rest"][index_array],
         "opacity": gs_data["opacity"][index_array],
         "scale": gs_data["scale"][index_array],
         "rotation": gs_data["rotation"][index_array],
     }
+    if "f_rest" in gs_data:
+        salient_gs_data["f_rest"] = gs_data["f_rest"][index_array]
 
     # 基于几何空间的伪影清理
     salient_gs_data, mask = filter_by_euclidean_distance(salient_gs_data)
     index_array = index_array[mask]
-    salient_gs_data, mask = filter_by_euclidean_distance(salient_gs_data)
-    index_array = index_array[mask]
-    salient_gs_data, mask = filter_by_euclidean_distance(salient_gs_data)
-    index_array = index_array[mask]
-    salient_gs_data, mask = filter_by_euclidean_distance(salient_gs_data)
-    index_array = index_array[mask]
-    salient_gs_data, mask = filter_by_density(salient_gs_data)
-    index_array = index_array[mask]
+    # salient_gs_data, mask = filter_by_density(salient_gs_data)
+    # index_array = index_array[mask]
 
     # TODO 结合 mask 投影一致性验证
 
-    save_gaussian_ply(salient_gs_data, "/media/why/新加卷/xsf/商品3DGS/scene/undistorted/3dgs/point_cloud/iteration_30000/salient.ply")
+    save_gaussian_ply(salient_gs_data, os.path.join(PATH, "point_cloud/iteration_7000/salient.ply"))
+    salient_gs_data_copy = copy.deepcopy(salient_gs_data)
     
     # 衣服高斯索引
-    cloth_pixel_gaussian_folder = "/media/why/新加卷/xsf/商品3DGS/scene/undistorted/part_seg/cloth/pixel_gaussian"
-    cloth_mask_folder = "/media/why/新加卷/xsf/商品3DGS/scene/undistorted/part_seg/cloth/mask"
-    cloth_gs_ids = parallel_collect_ids_mp(cloth_mask_folder, cloth_pixel_gaussian_folder, gs_count=2)
-    cloth_index_array = np.array(list(cloth_gs_ids), dtype=np.int64)
-    # 与前景高斯做交集
-    cloth_index_array = np.intersect1d(cloth_index_array, index_array)
-    cloth_gs_data = {
-        "position": gs_data["position"][cloth_index_array],
-        "normal": gs_data["normal"][cloth_index_array],
-        "f_dc": gs_data["f_dc"][cloth_index_array],
-        "f_rest": gs_data["f_rest"][cloth_index_array],
-        "opacity": gs_data["opacity"][cloth_index_array],
-        "scale": gs_data["scale"][cloth_index_array],
-        "rotation": gs_data["rotation"][cloth_index_array],
-    }
-    save_gaussian_ply(cloth_gs_data, "/media/why/新加卷/xsf/商品3DGS/scene/undistorted/3dgs/point_cloud/iteration_30000/cloth.ply")
+    # cloth_pixel_gaussian_folder = "/media/why/新加卷/xsf/商品3DGS/scene/undistorted/part_seg/cloth/pixel_gaussian"
+    # cloth_mask_folder = "/media/why/新加卷/xsf/商品3DGS/scene/undistorted/part_seg/cloth/mask"
+    # cloth_gs_ids = parallel_collect_ids_mp(cloth_mask_folder, cloth_pixel_gaussian_folder, gs_count=2)
+    # cloth_index_array = np.array(list(cloth_gs_ids), dtype=np.int64)
+    # # 与前景高斯做交集
+    # cloth_index_array = np.intersect1d(cloth_index_array, index_array)
+    # cloth_gs_data = {
+    #     "position": gs_data["position"][cloth_index_array],
+    #     "normal": gs_data["normal"][cloth_index_array],
+    #     "f_dc": gs_data["f_dc"][cloth_index_array],
+    #     "opacity": gs_data["opacity"][cloth_index_array],
+    #     "scale": gs_data["scale"][cloth_index_array],
+    #     "rotation": gs_data["rotation"][cloth_index_array],
+    # }
+    # if "f_rest" in gs_data:
+    #     cloth_gs_data["f_rest"] = gs_data["f_rest"][cloth_index_array]
+    # save_gaussian_ply(cloth_gs_data, "/media/why/新加卷/xsf/商品3DGS/scene/undistorted/3dgs/point_cloud/iteration_7000/cloth.ply")
     
     
     # 衣服换色
-    cloth_mask = np.isin(index_array, cloth_index_array)
-    mean_sh_color = np.mean(cloth_gs_data["f_dc"], axis=0)
-    print(fdc_to_rgb(mean_sh_color))
-    new_color = rgb_to_fdc(np.asarray([0, 1, 0]))
-    salient_gs_data["f_dc"][cloth_mask] = new_color
-    save_gaussian_ply(salient_gs_data, "/media/why/新加卷/xsf/商品3DGS/scene/undistorted/3dgs/point_cloud/iteration_30000/change_color.ply")
+    # cloth_mask = np.isin(index_array, cloth_index_array)
+    # mean_sh_color = np.mean(cloth_gs_data["f_dc"], axis=0)
+    # print(fdc_to_rgb(mean_sh_color))
+    # new_color = rgb_to_fdc(np.asarray([0, 1, 0]))
+    # salient_gs_data["f_dc"][cloth_mask] = new_color
+    # save_gaussian_ply(salient_gs_data, "/media/why/新加卷/xsf/商品3DGS/scene/undistorted/3dgs/point_cloud/iteration_7000/change_color.ply")
+    
+    
+    # 贴logo
+    from stick_logo import get_logo_gaussian_color
+    logo_mask_path = "/media/why/新加卷/xsf/商品3DGS/scene/undistorted/stick_logo/00000.png"
+    pixel_gaussian_path = "/media/why/新加卷/xsf/商品3DGS/scene/undistorted/stick_logo/00000_pixel_gaussian.npz"
+    ids, colors = get_logo_gaussian_color(logo_mask_path, pixel_gaussian_path)
+    # 与前景高斯做交集
+    ids, logo_indices, index_array_indices = np.intersect1d(ids, index_array, return_indices=True)
+    print(ids.shape)
+    colors = colors[logo_indices]
+    salient_gs_data_copy["f_dc"][index_array_indices] = rgb_to_fdc(colors)
+    save_gaussian_ply(salient_gs_data_copy, os.path.join(PATH, "point_cloud/iteration_7000/add_logo.ply"))
+    
