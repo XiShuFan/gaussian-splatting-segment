@@ -52,7 +52,7 @@ def normalize_depth(depth):
 
 
 # === 主函数：批量转换 COLMAP depth_maps ===
-def convert_colmap_depths(depth_maps_dir, images_dir, output_dir):
+def convert_colmap_depths(depth_maps_dir, images_dir, output_dir, json_dir):
     """
     depth_maps_dir: COLMAP 输出 depth_maps 文件夹
     images_dir: 对应的原始 RGB 图像文件夹
@@ -75,6 +75,7 @@ def convert_colmap_depths(depth_maps_dir, images_dir, output_dir):
             continue
 
         base_name = file.replace(".png.geometric.bin", ".png")
+        base_name = file.replace(".jpg.geometric.bin", ".jpg")
         if base_name not in image_sizes:
             print(f"⚠️ 找不到对应原始图像: {base_name}, 跳过")
             continue
@@ -98,7 +99,7 @@ def convert_colmap_depths(depth_maps_dir, images_dir, output_dir):
         depth_params[base_name] = {"scale": scale, "offset": offset}
 
     # 写入 depth_params.json
-    json_path = os.path.join(output_dir, "depth_params.json")
+    json_path = os.path.join(json_dir, "depth_params.json")
     with open(json_path, "w") as f:
         json.dump(depth_params, f, indent=4)
 
@@ -108,9 +109,12 @@ def convert_colmap_depths(depth_maps_dir, images_dir, output_dir):
 
 
 if __name__ == "__main__":
-    depth_maps_dir = "/media/why/新加卷/xsf/商品3DGS/scene/dense/0/stereo/depth_maps"
-    images_dir = "/media/why/新加卷/xsf/商品3DGS/scene/dense/0/images"
-    output_dir = "/media/why/新加卷/xsf/商品3DGS/scene/undistorted/depths"
-
-    convert_colmap_depths(depth_maps_dir, images_dir, output_dir)
+    from argparse import ArgumentParser, Namespace
+    parser = ArgumentParser(description="Training script parameters")
+    parser.add_argument('--depth_maps_dir', type=str)
+    parser.add_argument('--images_dir', type=str)
+    parser.add_argument('--output_dir', type=str)
+    parser.add_argument('--json_dir', type=str)
+    args: Namespace = parser.parse_args()
+    convert_colmap_depths(args.depth_maps_dir, args.images_dir, args.output_dir, args.json_dir)
 
