@@ -39,6 +39,7 @@ class Camera(nn.Module):
             print(f"[Warning] Custom device {data_device} failed, fallback to default cuda device" )
             self.data_device = torch.device("cuda")
 
+        # 缩放后的图片
         resized_image_rgb = PILtoTorch(image, resolution)
         gt_image = resized_image_rgb[:3, ...]
         resized_image_mask = load_mask_as_tensor(mask, resolution)
@@ -87,8 +88,10 @@ class Camera(nn.Module):
         self.scale = scale
 
         self.world_view_transform = torch.tensor(getWorld2View2(R, T, trans, scale)).transpose(0, 1).cuda()
+        # 将相机坐标系下的 3D 点投影到标准化设备坐标（NDC）空间，用于 GPU 渲染
         self.projection_matrix = getProjectionMatrix(znear=self.znear, zfar=self.zfar, fovX=self.FoVx, fovY=self.FoVy).transpose(0,1).cuda()
         self.full_proj_transform = (self.world_view_transform.unsqueeze(0).bmm(self.projection_matrix.unsqueeze(0))).squeeze(0)
+        # 相机中心
         self.camera_center = self.world_view_transform.inverse()[3, :3]
         
 class MiniCam:
