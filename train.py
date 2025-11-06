@@ -139,7 +139,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
             combined_mask = depth_mask
             Ll1depth_pure = torch.abs(diff * combined_mask).sum() / (combined_mask.sum() + 1e-8)
             Ll1depth = depth_l1_weight(iteration) * Ll1depth_pure 
-            loss += Ll1depth
+            loss += Ll1depth * 2.0
             Ll1depth = Ll1depth.item()
         else:
             Ll1depth = 0
@@ -173,7 +173,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
 
                 if iteration > opt.densify_from_iter and iteration % opt.densification_interval == 0:
                     # TODO 允许一个高斯在屏幕上最大投影半径
-                    size_threshold = 5 if iteration > opt.opacity_reset_interval else None
+                    size_threshold = 1 if iteration > opt.opacity_reset_interval else None
                     gaussians.densify_and_prune(max_grad=opt.densify_grad_threshold, 
                                                 min_opacity=0.05, extent=scene.cameras_extent, 
                                                 max_screen_size=size_threshold, radii=radii)

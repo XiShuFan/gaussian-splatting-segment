@@ -69,6 +69,7 @@ class PipelineParams(ParamGroup):
         self.convert_SHs_python = False
         self.compute_cov3D_python = False
         self.debug = False
+        # 抗锯齿
         self.antialiasing = False
         super().__init__(parser, "Pipeline Parameters")
 

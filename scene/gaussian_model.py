@@ -36,14 +36,18 @@ class GaussianModel:
             symm = strip_symmetric(actual_covariance)
             return symm
         
+        # 缩放激活函数
         self.scaling_activation = torch.exp
         self.scaling_inverse_activation = torch.log
 
+        # 协方差激活函数
         self.covariance_activation = build_covariance_from_scaling_rotation
 
+        # 不透明度激活函数
         self.opacity_activation = torch.sigmoid
         self.inverse_opacity_activation = inverse_sigmoid
 
+        # 旋转激活函数
         self.rotation_activation = torch.nn.functional.normalize
 
 
@@ -57,6 +61,7 @@ class GaussianModel:
         self._scaling = torch.empty(0)
         self._rotation = torch.empty(0)
         self._opacity = torch.empty(0)
+        # 动态更新，每个高斯在图像空间的最大投影半径
         self.max_radii2D = torch.empty(0)
         self.xyz_gradient_accum = torch.empty(0)
         self.denom = torch.empty(0)
@@ -147,6 +152,7 @@ class GaussianModel:
             self.active_sh_degree += 1
 
     def create_from_pcd(self, pcd : BasicPointCloud, cam_infos : int, spatial_lr_scale : float):
+        # 相机距离平均中心的最大半径作为空间学习率缩放
         self.spatial_lr_scale = spatial_lr_scale
         fused_point_cloud = torch.tensor(np.asarray(pcd.points)).float().cuda()
         fused_color = RGB2SH(torch.tensor(np.asarray(pcd.colors)).float().cuda())
@@ -156,11 +162,20 @@ class GaussianModel:
 
         print("Number of points at initialisation : ", fused_point_cloud.shape[0])
 
+        # 计算每个点到其最近邻点的平均平方距离
         dist2 = torch.clamp_min(distCUDA2(torch.from_numpy(np.asarray(pcd.points)).float().cuda()), 0.0000001)
+        # 得到距离取对数，是因为在优化中高斯的尺度参数是对数空间可学习的
+        # .repeat(1, 3) 三个方向的初始尺度相同（各向同性）
+        # 这就定义了每个高斯椭球的半径
+        # TODO 初始化有没有重叠？
         scales = torch.log(torch.sqrt(dist2))[...,None].repeat(1, 3)
+        
+        # 初始设置为单位四元数 [1, 0, 0, 0]，表示无旋转
+        # 后续训练中这些参数会学习到椭球的方向。
         rots = torch.zeros((fused_point_cloud.shape[0], 4), device="cuda")
         rots[:, 0] = 1
 
+        # TODO 初始透明度为0.1
         opacities = self.inverse_opacity_activation(0.1 * torch.ones((fused_point_cloud.shape[0], 1), dtype=torch.float, device="cuda"))
 
         self._xyz = nn.Parameter(fused_point_cloud.requires_grad_(True))
@@ -169,6 +184,7 @@ class GaussianModel:
         self._scaling = nn.Parameter(scales.requires_grad_(True))
         self._rotation = nn.Parameter(rots.requires_grad_(True))
         self._opacity = nn.Parameter(opacities.requires_grad_(True))
+        # 用于记录每个高斯在图像空间投影的最大半径（渲染时动态更新）
         self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
         self.exposure_mapping = {cam_info.image_name: idx for idx, cam_info in enumerate(cam_infos)}
         self.pretrained_exposures = None
@@ -181,6 +197,7 @@ class GaussianModel:
         self.denom = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
 
         l = [
+            # 坐标学习率乘上了场景大小因子
             {'params': [self._xyz], 'lr': training_args.position_lr_init * self.spatial_lr_scale, "name": "xyz"},
             {'params': [self._features_dc], 'lr': training_args.feature_lr, "name": "f_dc"},
             {'params': [self._features_rest], 'lr': training_args.feature_lr / 20.0, "name": "f_rest"},
@@ -200,10 +217,11 @@ class GaussianModel:
 
         self.exposure_optimizer = torch.optim.Adam([self._exposure])
 
+        # TODO 位置学习率
         self.xyz_scheduler_args = get_expon_lr_func(lr_init=training_args.position_lr_init*self.spatial_lr_scale,
                                                     lr_final=training_args.position_lr_final*self.spatial_lr_scale,
                                                     lr_delay_mult=training_args.position_lr_delay_mult,
-                                                    max_steps=training_args.position_lr_max_steps)
+                                                    max_steps=training_args.iterations)
         
         self.exposure_scheduler_args = get_expon_lr_func(training_args.exposure_lr_init, training_args.exposure_lr_final,
                                                         lr_delay_steps=training_args.exposure_lr_delay_steps,
@@ -256,6 +274,7 @@ class GaussianModel:
         PlyData([el]).write(path)
 
     def reset_opacity(self):
+        # TODO 重新设置透明度
         opacities_new = self.inverse_opacity_activation(torch.min(self.get_opacity, torch.ones_like(self.get_opacity)*0.01))
         optimizable_tensors = self.replace_tensor_to_optimizer(opacities_new, "opacity")
         self._opacity = optimizable_tensors["opacity"]
@@ -406,37 +425,74 @@ class GaussianModel:
         self.denom = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
         self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
 
-    def densify_and_split(self, grads, grad_threshold, scene_extent, N=2):
+    def densify_and_split(self, grads, grad_threshold, scene_extent, max_screen_size, N=2):
         n_init_points = self.get_xyz.shape[0]
         # Extract points that satisfy the gradient condition
         padded_grad = torch.zeros((n_init_points), device="cuda")
         padded_grad[:grads.shape[0]] = grads.squeeze()
         selected_pts_mask = torch.where(padded_grad >= grad_threshold, True, False)
-        selected_pts_mask = torch.logical_and(selected_pts_mask,
-                                              torch.max(self.get_scaling, dim=1).values > self.percent_dense*scene_extent)
+        large_mask = torch.max(self.get_scaling, dim=1).values > self.percent_dense*scene_extent
 
-        stds = self.get_scaling[selected_pts_mask].repeat(N,1)
-        means =torch.zeros((stds.size(0), 3),device="cuda")
-        samples = torch.normal(mean=means, std=stds)
-        rots = build_rotation(self._rotation[selected_pts_mask]).repeat(N,1,1)
-        new_xyz = torch.bmm(rots, samples.unsqueeze(-1)).squeeze(-1) + self.get_xyz[selected_pts_mask].repeat(N, 1)
-        new_scaling = self.scaling_inverse_activation(self.get_scaling[selected_pts_mask].repeat(N,1) / (0.8*N))
-        new_rotation = self._rotation[selected_pts_mask].repeat(N,1)
-        new_features_dc = self._features_dc[selected_pts_mask].repeat(N,1,1)
-        new_features_rest = self._features_rest[selected_pts_mask].repeat(N,1,1)
-        new_opacity = self._opacity[selected_pts_mask].repeat(N,1)
-        new_tmp_radii = self.tmp_radii[selected_pts_mask].repeat(N)
+        # ---- 修改2：依据屏幕投影半径 (像素尺度)
+        if max_screen_size:
+            large_mask = torch.logical_or(self.tmp_radii > max_screen_size, large_mask)
+        
+        selected_pts_mask = torch.logical_and(selected_pts_mask, large_mask)
+        
+        if max_screen_size:
+            # --- 动态确定 N
+            N = torch.clamp((self.tmp_radii[selected_pts_mask] / max_screen_size) ** 2, min=2, max=8).long()
+            # --- 重复每个被选点 N 次
+            stds = torch.repeat_interleave(self.get_scaling[selected_pts_mask], N, dim=0)
+            means = torch.zeros_like(stds)
+            samples = torch.normal(mean=means, std=stds)
+            rots = torch.repeat_interleave(build_rotation(self._rotation[selected_pts_mask]), N, dim=0)
+            new_xyz = torch.bmm(rots, samples.unsqueeze(-1)).squeeze(-1) + \
+                    torch.repeat_interleave(self.get_xyz[selected_pts_mask], N, dim=0)
+            
+            # 修复 N 的广播问题
+            N_rep = torch.repeat_interleave(N, N, dim=0).unsqueeze(-1)
+            new_scaling = self.scaling_inverse_activation(
+                torch.repeat_interleave(self.get_scaling[selected_pts_mask], N, dim=0) / (0.8 * N_rep)
+            )
+            new_rotation = torch.repeat_interleave(self._rotation[selected_pts_mask], N, dim=0)
+            new_features_dc = torch.repeat_interleave(self._features_dc[selected_pts_mask], N, dim=0)
+            new_features_rest = torch.repeat_interleave(self._features_rest[selected_pts_mask], N, dim=0)
+            new_opacity = torch.repeat_interleave(self._opacity[selected_pts_mask], N, dim=0)
+            new_tmp_radii = torch.repeat_interleave(self.tmp_radii[selected_pts_mask], N, dim=0)
+        else:
+            stds = self.get_scaling[selected_pts_mask].repeat(N,1)
+            means =torch.zeros((stds.size(0), 3),device="cuda")
+            samples = torch.normal(mean=means, std=stds)
+            rots = build_rotation(self._rotation[selected_pts_mask]).repeat(N,1,1)
+            new_xyz = torch.bmm(rots, samples.unsqueeze(-1)).squeeze(-1) + self.get_xyz[selected_pts_mask].repeat(N, 1)
+            new_scaling = self.scaling_inverse_activation(self.get_scaling[selected_pts_mask].repeat(N,1) / (0.8*N))
+            new_rotation = self._rotation[selected_pts_mask].repeat(N,1)
+            new_features_dc = self._features_dc[selected_pts_mask].repeat(N,1,1)
+            new_features_rest = self._features_rest[selected_pts_mask].repeat(N,1,1)
+            new_opacity = self._opacity[selected_pts_mask].repeat(N,1)
+            new_tmp_radii = self.tmp_radii[selected_pts_mask].repeat(N)
 
         self.densification_postfix(new_xyz, new_features_dc, new_features_rest, new_opacity, new_scaling, new_rotation, new_tmp_radii)
 
-        prune_filter = torch.cat((selected_pts_mask, torch.zeros(N * selected_pts_mask.sum(), device="cuda", dtype=bool)))
+        if max_screen_size:
+            prune_filter = torch.cat((selected_pts_mask, torch.zeros(N.sum(), device="cuda", dtype=bool)))
+        else:
+            prune_filter = torch.cat((selected_pts_mask, torch.zeros(N * selected_pts_mask.sum(), device="cuda", dtype=bool)))
+        
         self.prune_points(prune_filter)
 
-    def densify_and_clone(self, grads, grad_threshold, scene_extent):
+    def densify_and_clone(self, grads, grad_threshold, scene_extent, max_screen_size):
         # Extract points that satisfy the gradient condition
         selected_pts_mask = torch.where(torch.norm(grads, dim=-1) >= grad_threshold, True, False)
-        selected_pts_mask = torch.logical_and(selected_pts_mask,
-                                              torch.max(self.get_scaling, dim=1).values <= self.percent_dense*scene_extent)
+        small_mask = torch.max(self.get_scaling, dim=1).values <= self.percent_dense*scene_extent
+        
+        # ---- 修改1：依据屏幕投影半径 (像素尺度)
+        # 仅克隆那些在屏幕上半径小于 1 像素的高斯
+        if max_screen_size:
+            small_mask = torch.logical_or(self.tmp_radii <= max_screen_size, small_mask)
+        
+        selected_pts_mask = torch.logical_and(selected_pts_mask, small_mask)
         
         new_xyz = self._xyz[selected_pts_mask]
         new_features_dc = self._features_dc[selected_pts_mask]
@@ -454,13 +510,14 @@ class GaussianModel:
         grads[grads.isnan()] = 0.0
 
         self.tmp_radii = radii
-        self.densify_and_clone(grads, max_grad, extent)
-        self.densify_and_split(grads, max_grad, extent)
+        self.densify_and_clone(grads, max_grad, extent, max_screen_size)
+        self.densify_and_split(grads, max_grad, extent, max_screen_size, N=2)
 
         prune_mask = (self.get_opacity < min_opacity).squeeze()
         if max_screen_size:
             big_points_vs = self.max_radii2D > max_screen_size
-            big_points_ws = self.get_scaling.max(dim=1).values > 0.1 * extent
+            # TODO 只要高斯的尺度超过场景范围的百分占比，就删除
+            big_points_ws = self.get_scaling.max(dim=1).values > self.percent_dense * extent
             prune_mask = torch.logical_or(torch.logical_or(prune_mask, big_points_vs), big_points_ws)
         self.prune_points(prune_mask)
         tmp_radii = self.tmp_radii
