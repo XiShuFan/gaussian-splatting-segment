@@ -38,7 +38,7 @@ Jonathan Stephens made a fantastic step-by-step tutorial for setting up Gaussian
 The repository contains submodules, thus please check it out with
 ```shell
 # HTTPS
-git clone https://github.com/XiShuFan/gaussian-splatting-segment.git --recursive
+git clone -b seg-dev https://github.com/XiShuFan/gaussian-splatting-segment.git --recursive
 ```
 
 ## Overview
