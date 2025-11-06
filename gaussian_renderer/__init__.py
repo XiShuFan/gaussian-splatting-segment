@@ -48,7 +48,7 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
         debug=pipe.debug,
         antialiasing=pipe.antialiasing,
         MAX_GAUSSPERPIXEL=30,  # 每个像素对应的高斯数量
-        T_THRESHOLD=0.01, # alpha融合阈值
+        T_THRESHOLD=0.001, # alpha融合阈值
         K_MAX=-1, # 每个像素最多融合的高斯数量
     )
 
