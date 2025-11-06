@@ -49,9 +49,12 @@ class SceneInfo(NamedTuple):
 def getNerfppNorm(cam_info):
     def get_center_and_diag(cam_centers):
         cam_centers = np.hstack(cam_centers)
+        # 所有相机的平均中心
         avg_cam_center = np.mean(cam_centers, axis=1, keepdims=True)
         center = avg_cam_center
         dist = np.linalg.norm(cam_centers - center, axis=0, keepdims=True)
+        # 相机坐标到中心的最大距离
+        # TODO 取平均值试试
         diagonal = np.max(dist)
         return center.flatten(), diagonal
 
@@ -165,6 +168,7 @@ def readColmapSceneInfo(path, images, masks, depths, eval, train_test_exp, llffh
                 depths_params = json.load(f)
             all_scales = np.array([depths_params[key]["scale"] for key in depths_params])
             if (all_scales > 0).sum():
+                # 平均尺度
                 med_scale = np.median(all_scales[all_scales > 0])
             else:
                 med_scale = 0
@@ -178,19 +182,20 @@ def readColmapSceneInfo(path, images, masks, depths, eval, train_test_exp, llffh
             print(f"An unexpected error occurred when trying to open depth_params.json file: {e}")
             sys.exit(1)
 
-    if eval:
-        if "360" in path:
-            llffhold = 8
-        if llffhold:
-            print("------------LLFF HOLD-------------")
-            cam_names = [cam_extrinsics[cam_id].name for cam_id in cam_extrinsics]
-            cam_names = sorted(cam_names)
-            test_cam_names_list = [name for idx, name in enumerate(cam_names) if idx % llffhold == 0]
-        else:
-            with open(os.path.join(path, "sparse/0", "test.txt"), 'r') as file:
-                test_cam_names_list = [line.strip() for line in file]
-    else:
-        test_cam_names_list = []
+    # if eval:
+    #     if "360" in path:
+    #         llffhold = 8
+    #     if llffhold:
+    #         print("------------LLFF HOLD-------------")
+    #         cam_names = [cam_extrinsics[cam_id].name for cam_id in cam_extrinsics]
+    #         cam_names = sorted(cam_names)
+    #         test_cam_names_list = [name for idx, name in enumerate(cam_names) if idx % llffhold == 0]
+    #     else:
+    #         with open(os.path.join(path, "sparse/0", "test.txt"), 'r') as file:
+    #             test_cam_names_list = [line.strip() for line in file]
+    # else:
+    #     test_cam_names_list = []
+    test_cam_names_list = []
 
     reading_dir = "images" if images == None else images
     masks_dir = "masks" if masks == None else masks
