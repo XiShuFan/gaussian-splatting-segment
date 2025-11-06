@@ -22,7 +22,7 @@ def get_logo_gaussian_color(logo_mask_path, pixel_gaussian_path):
     valid_counts = pixel_gaussian_counts[logo_mask]
     MAX_GAUSSPERPIXEL = pixel_gaussian_ids.shape[-1]
     # TODO 限定像素对应的高斯数量
-    valid_counts[:] = 30
+    valid_counts[:] = 10
     # (N, MAX_GAUSSPERPIXEL)
     valid_ids = pixel_gaussian_ids[logo_mask, :]
     valid_colors = img_np[logo_mask]

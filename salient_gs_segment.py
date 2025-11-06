@@ -4,7 +4,7 @@ from PIL import Image
 from utils.ply_utils import load_gaussian_ply, save_gaussian_ply
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from sklearn.neighbors import NearestNeighbors
-from utils.sh_color_utils import rgb_to_fdc, fdc_to_rgb
+from utils.sh_utils import RGB2SH
 import copy
 
 def process_one_pair(args):
@@ -186,7 +186,7 @@ if __name__ == "__main__":
     # 与前景高斯做交集
     ids, logo_indices, index_array_indices = np.intersect1d(ids, index_array, return_indices=True)
     print(ids.shape)
-    colors = colors[logo_indices]
-    salient_gs_data_copy["f_dc"][index_array_indices] = rgb_to_fdc(colors)
+    colors = colors[logo_indices] / 255.0
+    salient_gs_data_copy["f_dc"][index_array_indices] = RGB2SH(colors)
     save_gaussian_ply(salient_gs_data_copy, os.path.join(PATH, "point_cloud/iteration_7000/add_logo.ply"))
     
