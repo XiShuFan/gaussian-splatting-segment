@@ -75,7 +75,7 @@ def convert_colmap_depths(depth_maps_dir, images_dir, output_dir, json_dir):
             continue
 
         base_name = file.replace(".png.geometric.bin", ".png")
-        base_name = file.replace(".jpg.geometric.bin", ".jpg")
+        base_name = base_name.replace(".jpg.geometric.bin", ".jpg")
         if base_name not in image_sizes:
             print(f"⚠️ 找不到对应原始图像: {base_name}, 跳过")
             continue
