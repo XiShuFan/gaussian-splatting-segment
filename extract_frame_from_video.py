@@ -96,7 +96,7 @@ def process_segment(video_path, start_frame, end_frame, frames_per_segment, down
     global_sel = [start_frame + idx for idx in local_sel]
     return global_sel
 
-def extract_frames_parallel_safe(video_path, output_dir, num_segments=10, frames_per_segment=10,
+def extract_frames_parallel_safe(video_path, output_dir, num_segments=10, frames_per_segment=10, max_edge=512,
                                  downsize=(64,64), max_workers=None):
     """
     主流程入口：
@@ -181,13 +181,19 @@ def extract_frames_parallel_safe(video_path, output_dir, num_segments=10, frames
         if not ret:
             break
         if idx in indices_set:
+            h, w = frame.shape[:2]
+            long_side = max(w, h)
+            scale = max_edge / long_side
+
+            new_w = int(w * scale)
+            new_h = int(h * scale)
+
+            resized = cv2.resize(frame, (new_w, new_h), interpolation=cv2.INTER_AREA)
             out_path = os.path.join(output_dir, f"frame_{saved:05d}.png")
-            cv2.imwrite(out_path, frame)
+            cv2.imwrite(out_path, resized)
             saved += 1
             # optional: remove from set to speed membership if many frames are saved
             # indices_set.remove(idx)
-        if (idx+1) % 500 == 0:
-            print(f"Scanned {idx+1}/{total_frames} frames, saved {saved}")
     cap.release()
     print(f"Done. Saved {saved} frames into {output_dir}")
 
@@ -195,8 +201,9 @@ def parse_args():
     p = argparse.ArgumentParser(description="Parallel segment keyframe extractor (robust, no-deadlock)")
     p.add_argument("video", help="Path to input video")
     p.add_argument("--output", "-o", default="frames", help="Output directory")
-    p.add_argument("--segments", type=int, default=10, help="Number of segments")
-    p.add_argument("--per_segment", type=int, default=10, help="Frames per segment")
+    p.add_argument("--segments", type=int, default=50, help="Number of segments")
+    p.add_argument("--per_segment", type=int, default=1, help="Frames per segment")
+    p.add_argument("--max_edge", type=int, default=512, help="Max edge size for saved frames")
     p.add_argument("--downsize", type=int, default=64, help="Downsize (square) for feature extraction. Larger = more accurate but slower")
     p.add_argument("--workers", type=int, default=None, help="Number of worker processes (default = min(segments, CPU))")
     return p.parse_args()
@@ -215,6 +222,7 @@ if __name__ == "__main__":
         output_dir=args.output,
         num_segments=args.segments,
         frames_per_segment=args.per_segment,
+        max_edge=args.max_edge,
         downsize=(args.downsize, args.downsize),
         max_workers=args.workers
     )
