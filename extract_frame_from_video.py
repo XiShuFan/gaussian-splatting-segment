@@ -191,20 +191,9 @@ def extract_frames_parallel_safe(video_path, output_dir, num_segments=10, frames
             # 缩放
             resized = cv2.resize(frame, (new_w, new_h), interpolation=cv2.INTER_AREA)
 
-            # ------------------------------
-            # 新增：创建 max_edge x max_edge 的黑色背景，并把 resized 居中放进去
-            # ------------------------------
-            canvas = np.zeros((max_edge, max_edge, 3), dtype=np.uint8)
-
-            # 计算左上角坐标，使图像居中
-            start_y = (max_edge - new_h) // 2
-            start_x = (max_edge - new_w) // 2
-
-            canvas[start_y:start_y+new_h, start_x:start_x+new_w] = resized
-
             # 保存
             out_path = os.path.join(output_dir, f"frame_{saved:05d}.png")
-            cv2.imwrite(out_path, canvas)
+            cv2.imwrite(out_path, resized)
             saved += 1
             # optional: remove from set to speed membership if many frames are saved
             # indices_set.remove(idx)
