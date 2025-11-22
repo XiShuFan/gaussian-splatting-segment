@@ -204,7 +204,7 @@ def parse_args():
     p = argparse.ArgumentParser(description="Parallel segment keyframe extractor (robust, no-deadlock)")
     p.add_argument("video", help="Path to input video")
     p.add_argument("--output", "-o", default="frames", help="Output directory")
-    p.add_argument("--segments", type=int, default=50, help="Number of segments")
+    p.add_argument("--segments", type=int, default=30, help="Number of segments")
     p.add_argument("--per_segment", type=int, default=1, help="Frames per segment")
     p.add_argument("--max_edge", type=int, default=518, help="Max edge size for saved frames")
     p.add_argument("--downsize", type=int, default=64, help="Downsize (square) for feature extraction. Larger = more accurate but slower")
