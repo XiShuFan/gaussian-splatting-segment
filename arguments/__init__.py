@@ -95,7 +95,7 @@ class OptimizationParams(ParamGroup):
         self.exposure_lr_delay_steps = 0
         self.exposure_lr_delay_mult = 0.0
         # TODO 控制点的大小
-        self.percent_dense = 0.005
+        self.percent_dense = 0.01
         self.lambda_dssim = 0.2
         self.densification_interval = 100
         self.opacity_reset_interval = 3000

@@ -510,14 +510,14 @@ class GaussianModel:
         grads[grads.isnan()] = 0.0
 
         self.tmp_radii = radii
-        self.densify_and_clone(grads, max_grad, extent, max_screen_size)
-        self.densify_and_split(grads, max_grad, extent, max_screen_size, N=2)
+        self.densify_and_clone(grads, max_grad, extent, max_screen_size=None)
+        self.densify_and_split(grads, max_grad, extent, max_screen_size=None, N=2)
 
         prune_mask = (self.get_opacity < min_opacity).squeeze()
         if max_screen_size:
             big_points_vs = self.max_radii2D > max_screen_size
             # TODO 只要高斯的尺度超过场景范围的百分占比，就删除
-            big_points_ws = self.get_scaling.max(dim=1).values > self.percent_dense * extent
+            big_points_ws = self.get_scaling.max(dim=1).values > 0.1 * extent
             prune_mask = torch.logical_or(torch.logical_or(prune_mask, big_points_vs), big_points_ws)
         self.prune_points(prune_mask)
         tmp_radii = self.tmp_radii

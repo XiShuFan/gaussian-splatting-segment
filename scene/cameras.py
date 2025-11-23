@@ -73,6 +73,7 @@ class Camera(nn.Module):
                 if depth_params["scale"] < 0.2 * depth_params["med_scale"] or depth_params["scale"] > 5 * depth_params["med_scale"]:
                     self.depth_reliable = False
                     self.depth_mask *= 0
+                    print("深度不可靠，跳过使用深度图")
                 
                 if depth_params["scale"] > 0:
                     self.invdepthmap = self.invdepthmap * depth_params["scale"] + depth_params["offset"]

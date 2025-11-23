@@ -132,6 +132,8 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         if depth_l1_weight(iteration) > 0 and viewpoint_cam.depth_reliable:
             invDepth = render_pkg["depth"]
             mono_invdepth = viewpoint_cam.invdepthmap.cuda()
+            # 设置深度为0
+            mono_invdepth[viewpoint_cam.original_mask == 0] = 0
             depth_mask = viewpoint_cam.depth_mask.cuda()
 
             diff = invDepth  - mono_invdepth
@@ -139,7 +141,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
             combined_mask = depth_mask
             Ll1depth_pure = torch.abs(diff * combined_mask).sum() / (combined_mask.sum() + 1e-8)
             Ll1depth = depth_l1_weight(iteration) * Ll1depth_pure 
-            loss += Ll1depth * 2.0
+            loss += Ll1depth * 10.0
             Ll1depth = Ll1depth.item()
         else:
             Ll1depth = 0
@@ -173,7 +175,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
 
                 if iteration > opt.densify_from_iter and iteration % opt.densification_interval == 0:
                     # TODO 允许一个高斯在屏幕上最大投影半径
-                    size_threshold = 1 if iteration > opt.opacity_reset_interval else None
+                    size_threshold = 5 if iteration > opt.opacity_reset_interval else None
                     gaussians.densify_and_prune(max_grad=opt.densify_grad_threshold, 
                                                 min_opacity=0.05, extent=scene.cameras_extent, 
                                                 max_screen_size=size_threshold, radii=radii)
