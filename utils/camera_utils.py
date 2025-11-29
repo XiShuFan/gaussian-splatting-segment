@@ -76,6 +76,9 @@ def cameraList_from_camInfos(cam_infos, resolution_scale, args, is_nerf_syntheti
     camera_list = []
 
     for id, c in enumerate(cam_infos):
+        if not os.path.exists(c.image_path):
+            print(f"⚠️ 图像文件不存在，跳过相机 ID {c.uid}：{c.image_path}")
+            continue
         camera_list.append(loadCam(args, id, c, resolution_scale, is_nerf_synthetic, is_test_dataset))
 
     return camera_list
