@@ -69,6 +69,17 @@ class GaussianModel:
         self.percent_dense = 0
         self.spatial_lr_scale = 0
         self.setup_functions()
+        
+    # 根据mask返回一个无梯度的子模型
+    def get_sub_gaussian_model(self, mask):
+        sub_model = GaussianModel(self.max_sh_degree)
+        sub_model._xyz = self._xyz[mask].clone().detach()
+        sub_model._features_dc = self._features_dc[mask].clone().detach()
+        sub_model._features_rest = self._features_rest[mask].clone().detach()
+        sub_model._scaling = self._scaling[mask].clone().detach()
+        sub_model._rotation = self._rotation[mask].clone().detach()
+        sub_model._opacity = self._opacity[mask].clone().detach()
+        return sub_model
 
     def capture(self):
         return (
