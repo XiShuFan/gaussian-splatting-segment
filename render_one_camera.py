@@ -9,11 +9,16 @@ import numpy as np
 import torchvision
 import os
 from typing import NamedTuple
+from numpy import ndarray
+from PIL import Image
 
 from gaussian_renderer import GaussianModel
 from gaussian_renderer import render
 from utils.graphics_utils import focal2fov, getWorld2View2, compute_t_from_R_and_center, getProjectionMatrix
 from utils.pix_gauss_utils import get_gaussian_mapping_mask
+from utils.general_utils import PILtoTorch, load_mask_as_tensor
+from transfer_logo_to_other_view import pixels_to_world, save_origin_ply
+from scene.dataset_readers import fetchPly
 
 
 class ViewpointCamera(NamedTuple):
@@ -24,6 +29,7 @@ class ViewpointCamera(NamedTuple):
     world_view_transform: tensor
     full_proj_transform: tensor
     camera_center: tensor
+    R: ndarray
     
 
 def normalize(v):
@@ -97,17 +103,23 @@ def get_view_from_camera(camera, trans=np.array([0.0, 0.0, 0.0]), scale=1.0):
         image_height=camera["height"],
         world_view_transform=world_view_transform,
         full_proj_transform=full_proj_transform,
-        camera_center=camera_center
+        camera_center=camera_center,
+        R=R
     )
     return view
 
 
-def render_one_camera(sh_degree, model_path, save_path, pipeline, camera):
+def render_one_camera(sh_degree, model_path, save_path, pipeline, camera, image_logo_path, mask_logo_path, logo_ply_path, logo_gaussian_path):
     with torch.no_grad():
         # 初始化高斯模型
         gaussians = GaussianModel(sh_degree)
         gaussians.load_ply(model_path, [])
         os.makedirs(save_path, exist_ok=True)
+        
+        # 读取 logo 图像和 mask
+        W, H = camera["width"], camera["height"]
+        logo_image = PILtoTorch(Image.open(image_logo_path), (W, H))
+        gt_mask = load_mask_as_tensor(Image.open(mask_logo_path).convert('L'), (W, H))
 
         # 黑色背景
         bg_color = [0, 0, 0]
@@ -116,13 +128,30 @@ def render_one_camera(sh_degree, model_path, save_path, pipeline, camera):
         # 渲染原始视图
         origin_view = get_view_from_camera(camera)
         render_result = render(origin_view, gaussians, pipeline, background)
+        invdepth = render_result["depth"].squeeze(0)
         rendering = render_result["render"]
+        torchvision.utils.save_image(rendering, os.path.join(save_path, "origin_image.png"))
+        
+        ys, xs = torch.meshgrid(
+            torch.arange(H, dtype=torch.float32),
+            torch.arange(W, dtype=torch.float32),
+            indexing='ij'
+        )
+        ys = ys.to(invdepth.device)
+        xs = xs.to(invdepth.device)
+        gt_mask = gt_mask.bool().squeeze(0).to(invdepth.device)
+        valid_mask, pts_world = pixels_to_world(xs, ys, invdepth, origin_view, additional_mask=gt_mask)
+        colors_world = logo_image[:, valid_mask]
+        pts_world = pts_world.cpu().numpy()
+        colors_world = colors_world.cpu().numpy().transpose(1, 0) * 255.0
+        colors_world = colors_world.astype(np.uint8)
+        # 保存logo点云
+        save_origin_ply(pts_world, colors_world, logo_ply_path)
         
         # TODO 获取视线中心（可以考虑使用mask的中心点坐标）
         pixel_gaussian_ids = render_result["pixel_gaussian_ids"]
         pixel_gaussian_counts = render_result["pixel_gaussian_counts"]
         pixel_gaussian_counts[pixel_gaussian_counts > 1] = 1
-        H, W = rendering.shape[1], rendering.shape[2]
         mask = torch.zeros((H, W), dtype=torch.bool)
         center_h, center_w = H // 2, W // 2
         mask[center_h-5:center_h+5, center_w-5:center_w+5] = 1
@@ -131,17 +160,26 @@ def render_one_camera(sh_degree, model_path, save_path, pipeline, camera):
         target_center = sub_model.get_xyz.mean(dim=0).cpu().numpy()
         # 获取结束
         
-        torchvision.utils.save_image(rendering, os.path.join(save_path, "origin_render.png"))
+        # 从logo点云初始化高斯模型
+        logo_gaussians = GaussianModel(sh_degree)
+        logo_gaussians.create_from_pcd(fetchPly(logo_ply_path), [], 1, full_opacity=True)
+        
+        logo_render_result = render(origin_view, logo_gaussians, pipeline, background)
+        logo_rendering = logo_render_result["render"]
+        torchvision.utils.save_image(logo_rendering, os.path.join(save_path, "origin_logo.png"))
         
         # 渲染绕圈视图
         dist = np.linalg.norm(np.array(camera["position"]) - target_center)
-        radius = dist * 0.1
+        radius = dist * 0.2
         new_camera_list = sample_cameras_on_circle(camera, target_center, radius=radius, n=10)
         for i, new_camera in enumerate(new_camera_list):
             new_view = get_view_from_camera(new_camera)
-            render_result = render(new_view, gaussians, pipeline, background)
+            render_result = render(new_view, logo_gaussians, pipeline, background)
             rendering = render_result["render"]
             torchvision.utils.save_image(rendering, os.path.join(save_path, f"perturbed_render_{i:02d}.png"))
+            
+        # 保存logo高斯场景
+        logo_gaussians.save_ply(logo_gaussian_path)
     return
 
 
@@ -149,19 +187,30 @@ if __name__ == "__main__":
     # Set up command line argument parser
     parser = ArgumentParser(description="Testing script parameters")
     pipeline = PipelineParams(parser)
-    parser.add_argument("--sh_degree", default=2, type=int)
-    parser.add_argument("--model_path", type=str, required=True)
-    parser.add_argument("--save_path", type=str, required=True)
+    parser.add_argument("--sh_degree", default=2, type=int, help="球谐阶数")
+    parser.add_argument("--model_path", type=str, required=True, help="高斯模型路径")
+    parser.add_argument("--save_path", type=str, required=True, help="渲染图片保存路径")
+    parser.add_argument("--image_logo_path", type=str, required=True, help="包含logo的图片路径")
+    parser.add_argument("--mask_logo_path", type=str, required=True, help="logo的mask路径")
+    parser.add_argument("--logo_ply_path", type=str, required=True, help="logo点云保存路径")
+    parser.add_argument("--logo_gaussian_path", type=str, required=True, help="logo高斯场景保存路径")
     args = parser.parse_args()
     print("Rendering " + args.model_path)
     
-    camera = {"width": 518, "height": 291, 
-          "position": [0.00011208281757627249, -0.00012430399705829913, 7.592072439092976e-05], 
-          "rotation": [
-              [0.9999999915140682, 3.127467822933982e-05, -0.0001264664301550828], 
-              [-3.127937419038784e-05, 0.999999998821472, -3.7130268041640856e-05], 
-              [0.0001264652687688477, 3.713422351736542e-05, 0.9999999913137926]
-              ], 
-          "fy": 437.1155090332031, "fx": 437.8052062988281}
+    camera = {
+        "id": 8, 
+        "img_name": "frame_00008.png", 
+        "width": 518, 
+        "height": 291, 
+        "position": [0.749573911580539, -0.21718518084729227, 0.8828316220418042], 
+        "rotation": [
+            [-0.19922023739973, 0.2614259939469231, -0.9444405000939621], 
+            [-0.08358388577128692, 0.9557141004165395, 0.2821777745015246], 
+            [0.9763837066278003, 0.1351555106983216, -0.1685465930408849]
+            ], 
+        "fy": 451.1372375488282, 
+        "fx": 451.02505493164057
+        }
 
-    render_one_camera(args.sh_degree, args.model_path, args.save_path, pipeline.extract(args), camera)
+    render_one_camera(args.sh_degree, args.model_path, args.save_path, pipeline.extract(args), 
+                      camera, args.image_logo_path, args.mask_logo_path, args.logo_ply_path, args.logo_gaussian_path)

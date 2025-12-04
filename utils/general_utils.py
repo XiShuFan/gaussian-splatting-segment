@@ -28,7 +28,7 @@ def PILtoTorch(pil_image, resolution):
 
 def load_mask_as_tensor(mask_image, resolution):
     mask_pil = mask_image.resize(resolution)
-    # shape [1, H, W]
+    # shape [1, W, H]
     mask_tensor = torch.from_numpy(np.array(mask_pil, dtype=np.float32)).unsqueeze(0) / 255.0
     return mask_tensor
 
