@@ -95,6 +95,7 @@ def readColmapCameras(cam_extrinsics, cam_intrinsics, depths_params, images_fold
             FovY = focal2fov(focal_length_x, height)
             FovX = focal2fov(focal_length_x, width)
         elif intr.model=="PINHOLE":
+            # TODO 目前都是这种类型相机
             print("PINHOLE")
             focal_length_x = intr.params[0]
             focal_length_y = intr.params[1]

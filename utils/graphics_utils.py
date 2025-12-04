@@ -48,6 +48,14 @@ def getWorld2View2(R, t, translate=np.array([.0, .0, .0]), scale=1.0):
     Rt = np.linalg.inv(C2W)
     return np.float32(Rt)
 
+def compute_t_from_R_and_center(R, camera_center):
+    """
+    R: (3,3) numpy array, world → camera rotation
+    camera_center: (3,) numpy array, camera position in world coordinates
+    returns: t (3,)
+    """
+    return - R.T @ camera_center
+
 def getProjectionMatrix(znear, zfar, fovX, fovY):
     tanHalfFovY = math.tan((fovY / 2))
     tanHalfFovX = math.tan((fovX / 2))
