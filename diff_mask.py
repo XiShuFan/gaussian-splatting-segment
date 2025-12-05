@@ -20,8 +20,9 @@ def generate_diff_mask(img1_path, img2_path, mask_path):
     # 生成 bool 类型 mask（True = 不同）
     mask = np.any(diff != 0, axis=2)   # (H, W) bool
 
-    # 膨胀操作
-    structure = np.ones((20, 20), dtype=bool)
+    # 膨胀操作，核为3
+    kernel = 3
+    structure = np.ones((kernel, kernel), dtype=bool)
     expanded_mask = binary_dilation(mask, structure=structure, iterations=1)
 
     # 转成 uint8 × 255 保存

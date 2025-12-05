@@ -11,6 +11,7 @@ import os
 from typing import NamedTuple
 from numpy import ndarray
 from PIL import Image
+import torch.nn.functional as F
 
 from gaussian_renderer import GaussianModel
 from gaussian_renderer import render
@@ -109,7 +110,30 @@ def get_view_from_camera(camera, trans=np.array([0.0, 0.0, 0.0]), scale=1.0):
     return view
 
 
-def render_one_camera(sh_degree, model_path, save_path, pipeline, camera, image_logo_path, mask_logo_path, logo_ply_path, logo_gaussian_path):
+# 一个像素想保留为 1，邻域内必须全部为 1；否则就变成 0
+def erode_mask(mask, k):
+    """
+    mask: (H, W) boolean mask
+    k: 腐蚀半径（像素）
+    """
+    if k <= 0:
+        return mask
+    
+    # convert to float so MinPool2d can process
+    mask_f = mask.float().unsqueeze(0).unsqueeze(0)  # (1,1,H,W)
+
+    # kernel size = 2*k+1 (例如收缩 3 像素 -> kernel = 7)
+    kernel = 2 * k + 1
+
+    # MinPool2d = erosion
+    eroded = -F.max_pool2d(-mask_f, kernel_size=kernel, stride=1, padding=k)
+
+    eroded_mask = (eroded[0,0] > 0.999)  # convert back to bool
+    return eroded_mask
+
+
+
+def render_one_camera(sh_degree, model_path, save_path, pipeline, camera, image_logo_path, mask_logo_path, logo_ply_path, logo_gaussian_path, full_gaussian_path):
     with torch.no_grad():
         # 初始化高斯模型
         gaussians = GaussianModel(sh_degree)
@@ -173,13 +197,28 @@ def render_one_camera(sh_degree, model_path, save_path, pipeline, camera, image_
         radius = dist * 0.2
         new_camera_list = sample_cameras_on_circle(camera, target_center, radius=radius, n=10)
         for i, new_camera in enumerate(new_camera_list):
+            # 新相机位姿
             new_view = get_view_from_camera(new_camera)
-            render_result = render(new_view, logo_gaussians, pipeline, background)
+            # 渲染logo
+            logo_render_result = render(new_view, logo_gaussians, pipeline, background)
+            logo_rendering = logo_render_result["render"]
+            # 渲染原场景
+            render_result = render(new_view, gaussians, pipeline, background)
             rendering = render_result["render"]
+            # logo叠加到原场景
+            mask = (logo_rendering.abs().sum(dim=0) > 0)
+            kernel = 3
+            mask_eroded = erode_mask(mask, kernel)
+            mask3 = mask_eroded.unsqueeze(0).expand_as(rendering)
+            rendering[mask3] = logo_rendering[mask3]
+            # 保存图片
             torchvision.utils.save_image(rendering, os.path.join(save_path, f"perturbed_render_{i:02d}.png"))
             
         # 保存logo高斯场景
         logo_gaussians.save_ply(logo_gaussian_path)
+        # 合并模型并保存
+        merge_model = gaussians.merge_gaussian_model(logo_gaussians)
+        merge_model.save_ply(full_gaussian_path)
     return
 
 
@@ -194,6 +233,7 @@ if __name__ == "__main__":
     parser.add_argument("--mask_logo_path", type=str, required=True, help="logo的mask路径")
     parser.add_argument("--logo_ply_path", type=str, required=True, help="logo点云保存路径")
     parser.add_argument("--logo_gaussian_path", type=str, required=True, help="logo高斯场景保存路径")
+    parser.add_argument("--full_gaussian_path", type=str, required=True, help="合并后高斯场景保存路径")
     args = parser.parse_args()
     print("Rendering " + args.model_path)
     
@@ -213,4 +253,4 @@ if __name__ == "__main__":
         }
 
     render_one_camera(args.sh_degree, args.model_path, args.save_path, pipeline.extract(args), 
-                      camera, args.image_logo_path, args.mask_logo_path, args.logo_ply_path, args.logo_gaussian_path)
+                      camera, args.image_logo_path, args.mask_logo_path, args.logo_ply_path, args.logo_gaussian_path, args.full_gaussian_path)

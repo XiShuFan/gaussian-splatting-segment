@@ -80,6 +80,17 @@ class GaussianModel:
         sub_model._rotation = self._rotation[mask].clone().detach()
         sub_model._opacity = self._opacity[mask].clone().detach()
         return sub_model
+    
+    # 合并两个高斯模型，返回一个新的高斯模型
+    def merge_gaussian_model(self, other_model):
+        merge_model = GaussianModel(self.max_sh_degree)
+        merge_model._xyz = torch.cat((self._xyz, other_model._xyz), dim=0).clone().detach()
+        merge_model._features_dc = torch.cat((self._features_dc, other_model._features_dc), dim=0).clone().detach()
+        merge_model._features_rest = torch.cat((self._features_rest, other_model._features_rest), dim=0).clone().detach()
+        merge_model._scaling = torch.cat((self._scaling, other_model._scaling), dim=0).clone().detach()
+        merge_model._rotation = torch.cat((self._rotation, other_model._rotation), dim=0).clone().detach()
+        merge_model._opacity = torch.cat((self._opacity, other_model._opacity), dim=0).clone().detach()
+        return merge_model
 
     def capture(self):
         return (
