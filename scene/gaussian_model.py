@@ -173,7 +173,7 @@ class GaussianModel:
         if self.active_sh_degree < self.max_sh_degree:
             self.active_sh_degree += 1
 
-    def create_from_pcd(self, pcd : BasicPointCloud, cam_infos : int, spatial_lr_scale : float, full_opacity : bool = False):
+    def create_from_pcd(self, pcd : BasicPointCloud, cam_infos : int, spatial_lr_scale : float, full_opacity : bool = False, half_scale : bool = False):
         # 相机距离平均中心的最大半径作为空间学习率缩放
         self.spatial_lr_scale = spatial_lr_scale
         fused_point_cloud = torch.tensor(np.asarray(pcd.points)).float().cuda()
@@ -190,7 +190,10 @@ class GaussianModel:
         # .repeat(1, 3) 三个方向的初始尺度相同（各向同性）
         # 这就定义了每个高斯椭球的半径
         # TODO 初始化有没有重叠？
-        scales = torch.log(torch.sqrt(dist2))[...,None].repeat(1, 3)
+        if half_scale:
+            scales = torch.log(torch.sqrt(dist2) * 0.5)[...,None].repeat(1, 3)
+        else:
+            scales = torch.log(torch.sqrt(dist2))[...,None].repeat(1, 3)
         
         # 初始设置为单位四元数 [1, 0, 0, 0]，表示无旋转
         # 后续训练中这些参数会学习到椭球的方向。

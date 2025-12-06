@@ -12,6 +12,7 @@ from typing import NamedTuple
 from numpy import ndarray
 from PIL import Image
 import torch.nn.functional as F
+import json
 
 from gaussian_renderer import GaussianModel
 from gaussian_renderer import render
@@ -74,8 +75,8 @@ def sample_cameras_on_circle(camera, target_center, radius=0.1, n=8):
 
         # 组装新的 camera
         new_camera = camera.copy()
-        new_camera["position"] = new_C
-        new_camera["rotation"] = new_R
+        new_camera["position"] = new_C.tolist()
+        new_camera["rotation"] = new_R.tolist()
 
         cameras.append(new_camera)
 
@@ -133,7 +134,7 @@ def erode_mask(mask, k):
 
 
 
-def render_one_camera(sh_degree, model_path, save_path, pipeline, camera, image_logo_path, mask_logo_path, logo_ply_path, logo_gaussian_path, full_gaussian_path):
+def render_one_camera(sh_degree, model_path, save_path, pipeline, camera, image_logo_path, mask_logo_path, logo_ply_path, logo_gaussian_path, full_gaussian_path, camera_path):
     with torch.no_grad():
         # 初始化高斯模型
         gaussians = GaussianModel(sh_degree)
@@ -154,7 +155,7 @@ def render_one_camera(sh_degree, model_path, save_path, pipeline, camera, image_
         render_result = render(origin_view, gaussians, pipeline, background)
         invdepth = render_result["depth"].squeeze(0)
         rendering = render_result["render"]
-        torchvision.utils.save_image(rendering, os.path.join(save_path, "origin_image.png"))
+        # torchvision.utils.save_image(rendering, os.path.join(save_path, "origin_image.png"))
         
         ys, xs = torch.meshgrid(
             torch.arange(H, dtype=torch.float32),
@@ -186,16 +187,18 @@ def render_one_camera(sh_degree, model_path, save_path, pipeline, camera, image_
         
         # 从logo点云初始化高斯模型
         logo_gaussians = GaussianModel(sh_degree)
-        logo_gaussians.create_from_pcd(fetchPly(logo_ply_path), [], 1, full_opacity=True)
+        logo_gaussians.create_from_pcd(fetchPly(logo_ply_path), [], 1, full_opacity=True, half_scale=True)
         
         logo_render_result = render(origin_view, logo_gaussians, pipeline, background)
         logo_rendering = logo_render_result["render"]
-        torchvision.utils.save_image(logo_rendering, os.path.join(save_path, "origin_logo.png"))
+        # torchvision.utils.save_image(logo_rendering, os.path.join(save_path, "origin_logo.png"))
         
         # 渲染绕圈视图
         dist = np.linalg.norm(np.array(camera["position"]) - target_center)
         radius = dist * 0.2
         new_camera_list = sample_cameras_on_circle(camera, target_center, radius=radius, n=10)
+        # 原始相机也添加进来
+        new_camera_list.append(camera)
         for i, new_camera in enumerate(new_camera_list):
             # 新相机位姿
             new_view = get_view_from_camera(new_camera)
@@ -213,12 +216,17 @@ def render_one_camera(sh_degree, model_path, save_path, pipeline, camera, image_
             rendering[mask3] = logo_rendering[mask3]
             # 保存图片
             torchvision.utils.save_image(rendering, os.path.join(save_path, f"perturbed_render_{i:02d}.png"))
+            new_camera["id"] = i
+            new_camera["img_name"] = f"perturbed_render_{i:02d}.png"
             
         # 保存logo高斯场景
         logo_gaussians.save_ply(logo_gaussian_path)
         # 合并模型并保存
         merge_model = gaussians.merge_gaussian_model(logo_gaussians)
         merge_model.save_ply(full_gaussian_path)
+        # 保存相机参数
+        with open(camera_path, "w") as f:
+            json.dump(new_camera_list, f, indent=2)
     return
 
 
@@ -234,6 +242,7 @@ if __name__ == "__main__":
     parser.add_argument("--logo_ply_path", type=str, required=True, help="logo点云保存路径")
     parser.add_argument("--logo_gaussian_path", type=str, required=True, help="logo高斯场景保存路径")
     parser.add_argument("--full_gaussian_path", type=str, required=True, help="合并后高斯场景保存路径")
+    parser.add_argument("--camera_path", type=str, required=True, help="相机参数路径")
     args = parser.parse_args()
     print("Rendering " + args.model_path)
     
@@ -253,4 +262,4 @@ if __name__ == "__main__":
         }
 
     render_one_camera(args.sh_degree, args.model_path, args.save_path, pipeline.extract(args), 
-                      camera, args.image_logo_path, args.mask_logo_path, args.logo_ply_path, args.logo_gaussian_path, args.full_gaussian_path)
+                      camera, args.image_logo_path, args.mask_logo_path, args.logo_ply_path, args.logo_gaussian_path, args.full_gaussian_path, args.camera_path)
