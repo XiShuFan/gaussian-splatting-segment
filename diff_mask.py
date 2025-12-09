@@ -35,7 +35,7 @@ def generate_diff_mask(img1_path, img2_path, mask_path):
 
 if __name__ == "__main__":
     generate_diff_mask(
-        "/media/why/新加卷/xsf/商品3DGS/scene/logo/images/frame_00008.png",
-        "/media/why/新加卷/xsf/商品3DGS/scene/logo/frame_00008.png",
-        "/media/why/新加卷/xsf/商品3DGS/scene/logo/masks/frame_00008.png"
+        "/media/why/新加卷/xsf/商品3DGS/scene/finetune2/frame_00008_overlay.png",
+        "/media/why/新加卷/xsf/商品3DGS/scene/finetune2/frame_00008_origin.png",
+        "/media/why/新加卷/xsf/商品3DGS/scene/finetune2/frame_00008_mask.png"
     )

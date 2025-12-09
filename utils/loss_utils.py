@@ -50,6 +50,10 @@ def masked_l1_loss(network_output, gt, mask):
     Returns:
         加权后的 L1 loss (float)
     """
+    
+    if mask is None:
+        return l1_loss(network_output, gt)
+    
     # 保证 mask 可广播到输出维度
     while mask.dim() < network_output.dim():
         mask = mask.unsqueeze(1)

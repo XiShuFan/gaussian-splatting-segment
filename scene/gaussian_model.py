@@ -363,6 +363,7 @@ class GaussianModel:
         self.exposure_mapping = {cam_info.image_name: idx for idx, cam_info in enumerate(cam_infos)}
         exposure = torch.eye(3, 4, device="cuda")[None].repeat(1, 1, 1)
         self._exposure = nn.Parameter(exposure.requires_grad_(True))
+        self.pretrained_exposures = None
         # TODO 修改部分结束
 
         self.active_sh_degree = self.max_sh_degree

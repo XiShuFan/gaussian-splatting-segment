@@ -134,12 +134,14 @@ def erode_mask(mask, k):
 
 
 
-def render_one_camera(sh_degree, model_path, save_path, pipeline, camera, image_logo_path, mask_logo_path, logo_ply_path, logo_gaussian_path, full_gaussian_path, camera_path):
+def render_one_camera(sh_degree, model_path, save_path, pipeline, camera, image_logo_path, 
+                      mask_logo_path, logo_ply_path, logo_gaussian_path, full_gaussian_path, camera_path, depth_path):
     with torch.no_grad():
         # 初始化高斯模型
         gaussians = GaussianModel(sh_degree)
         gaussians.load_ply(model_path, [])
         os.makedirs(save_path, exist_ok=True)
+        os.makedirs(depth_path, exist_ok=True)
         
         # 读取 logo 图像和 mask
         W, H = camera["width"], camera["height"]
@@ -157,6 +159,17 @@ def render_one_camera(sh_degree, model_path, save_path, pipeline, camera, image_
         rendering = render_result["render"]
         # torchvision.utils.save_image(rendering, os.path.join(save_path, "origin_image.png"))
         
+        # 获取logo这块的高斯mask，降低透明度
+        pixel_gaussian_ids = render_result["pixel_gaussian_ids"]
+        pixel_gaussian_counts = render_result["pixel_gaussian_counts"]
+        logo_gaussian_mask = get_gaussian_mapping_mask(gt_mask, pixel_gaussian_counts, pixel_gaussian_ids, gaussians)
+        # TODO 注意透明度不是直接设置的
+        gaussians._opacity[logo_gaussian_mask] = gaussians.inverse_opacity_activation(0.01 * torch.ones(1, dtype=torch.float, device="cuda"))
+        
+        # 深度列表
+        new_depth_list = []
+        new_depth_list.append(invdepth)
+        
         ys, xs = torch.meshgrid(
             torch.arange(H, dtype=torch.float32),
             torch.arange(W, dtype=torch.float32),
@@ -172,6 +185,9 @@ def render_one_camera(sh_degree, model_path, save_path, pipeline, camera, image_
         colors_world = colors_world.astype(np.uint8)
         # 保存logo点云
         save_origin_ply(pts_world, colors_world, logo_ply_path)
+        logo_points_num = pts_world.shape[0]
+        with open(logo_ply_path + "_points_num.txt", "w") as f:
+            f.write(str(logo_points_num))
         
         # TODO 获取视线中心（可以考虑使用mask的中心点坐标）
         pixel_gaussian_ids = render_result["pixel_gaussian_ids"]
@@ -195,8 +211,9 @@ def render_one_camera(sh_degree, model_path, save_path, pipeline, camera, image_
         
         # 渲染绕圈视图
         dist = np.linalg.norm(np.array(camera["position"]) - target_center)
-        radius = dist * 0.2
-        new_camera_list = sample_cameras_on_circle(camera, target_center, radius=radius, n=10)
+        new_camera_list = []
+        new_camera_list += sample_cameras_on_circle(camera, target_center, radius=dist * 0.5, n=20)
+        new_camera_list += sample_cameras_on_circle(camera, target_center, radius=dist * 0.2, n=10)
         # 原始相机也添加进来
         new_camera_list.append(camera)
         for i, new_camera in enumerate(new_camera_list):
@@ -208,6 +225,8 @@ def render_one_camera(sh_degree, model_path, save_path, pipeline, camera, image_
             # 渲染原场景
             render_result = render(new_view, gaussians, pipeline, background)
             rendering = render_result["render"]
+            invdepth = render_result["depth"].squeeze(0)
+            new_depth_list.append(invdepth)
             # logo叠加到原场景
             mask = (logo_rendering.abs().sum(dim=0) > 0)
             kernel = 3
@@ -218,6 +237,10 @@ def render_one_camera(sh_degree, model_path, save_path, pipeline, camera, image_
             torchvision.utils.save_image(rendering, os.path.join(save_path, f"perturbed_render_{i:02d}.png"))
             new_camera["id"] = i
             new_camera["img_name"] = f"perturbed_render_{i:02d}.png"
+            
+        # 保存深度图
+        for i, depth in enumerate(new_depth_list):
+            np.save(os.path.join(depth_path, f"perturbed_depth_{i:02d}.npy"), depth.cpu().detach().numpy())
             
         # 保存logo高斯场景
         logo_gaussians.save_ply(logo_gaussian_path)
@@ -243,6 +266,7 @@ if __name__ == "__main__":
     parser.add_argument("--logo_gaussian_path", type=str, required=True, help="logo高斯场景保存路径")
     parser.add_argument("--full_gaussian_path", type=str, required=True, help="合并后高斯场景保存路径")
     parser.add_argument("--camera_path", type=str, required=True, help="相机参数路径")
+    parser.add_argument("--depth_path", type=str, required=True, help="深度图保存路径")
     args = parser.parse_args()
     print("Rendering " + args.model_path)
     
@@ -262,4 +286,5 @@ if __name__ == "__main__":
         }
 
     render_one_camera(args.sh_degree, args.model_path, args.save_path, pipeline.extract(args), 
-                      camera, args.image_logo_path, args.mask_logo_path, args.logo_ply_path, args.logo_gaussian_path, args.full_gaussian_path, args.camera_path)
+                      camera, args.image_logo_path, args.mask_logo_path, args.logo_ply_path, 
+                      args.logo_gaussian_path, args.full_gaussian_path, args.camera_path, args.depth_path)
