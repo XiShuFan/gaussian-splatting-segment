@@ -20,6 +20,7 @@ from utils.general_utils import safe_state, get_expon_lr_func
 import uuid
 from tqdm import tqdm
 from utils.image_utils import psnr
+from utils.pix_gauss_utils import get_gaussian_mapping_mask
 from argparse import ArgumentParser, Namespace
 from arguments import ModelParams, PipelineParams, OptimizationParams
 try:
@@ -132,8 +133,6 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         if depth_l1_weight(iteration) > 0 and viewpoint_cam.depth_reliable:
             invDepth = render_pkg["depth"]
             mono_invdepth = viewpoint_cam.invdepthmap.cuda()
-            # 设置深度为0
-            mono_invdepth[viewpoint_cam.original_mask == 0] = 0
             depth_mask = viewpoint_cam.depth_mask.cuda()
 
             diff = invDepth  - mono_invdepth
