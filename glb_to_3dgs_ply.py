@@ -3,9 +3,11 @@ import numpy as np
 from PIL import Image
 from plyfile import PlyData, PlyElement
 from trimesh.visual import ColorVisuals, TextureVisuals
-from utils.sh_utils import RGB2SH
 from sklearn.neighbors import NearestNeighbors
 
+def RGB2SH(rgb):
+    C0 = 0.28209479177387814
+    return (rgb - 0.5) / C0
 
 # =========================
 # 参数区
@@ -18,7 +20,7 @@ NUM_POINTS = 600_000
 # 不透明度
 ALPHA = 0.99
 # 缩放系数
-SCALE_FACTOR = 1.2
+SCALE_FACTOR = 2.0
 
 
 # =========================
@@ -146,7 +148,7 @@ scales = np.stack([scale_scalar, scale_scalar, normal], axis=1)
 # 7. Rotation（简化：identity）
 # Super Splat / 多数 GS Viewer 对 rotation 不敏感
 # =========================
-rotations = np.tile([1.0, 0.0, 0.0, 0.0], (NUM_POINTS, 1))  # quaternion (w,x,y,z)
+rotations = np.tile([0.0, 0.0, 0.0, 0.0], (NUM_POINTS, 1))  # quaternion (w,x,y,z)
 
 # =========================
 # 8. Alpha
@@ -248,8 +250,8 @@ end_header
 """
 
 # 高斯中心坐标
-vertex_data["x"] = points[:, 0]
-vertex_data["y"] = points[:, 1]
+vertex_data["x"] = -points[:, 0]
+vertex_data["y"] = -points[:, 1]
 vertex_data["z"] = points[:, 2]
 
 # 球谐函数颜色
