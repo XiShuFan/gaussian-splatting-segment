@@ -12,8 +12,8 @@ def RGB2SH(rgb):
 # =========================
 # 参数区
 # =========================
-GLB_PATH = "shoes.glb"
-OUTPUT_PLY = "shoes_3dgs.ply"
+GLB_PATH = "/media/why/新加卷/xsf/商品3DGS/mesh_to_gs/shoes.glb"
+OUTPUT_PLY = "/media/why/新加卷/xsf/商品3DGS/mesh_to_gs/shoes_3dgs.ply"
 
 # 采样点数量
 NUM_POINTS = 600_000
@@ -250,8 +250,13 @@ end_header
 """
 
 # 高斯中心坐标
+"""
+注意，高斯展示的正确方向是
 vertex_data["x"] = -points[:, 0]
 vertex_data["y"] = -points[:, 1]
+"""
+vertex_data["x"] = points[:, 0]
+vertex_data["y"] = points[:, 1]
 vertex_data["z"] = points[:, 2]
 
 # 球谐函数颜色

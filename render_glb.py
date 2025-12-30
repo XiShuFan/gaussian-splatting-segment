@@ -27,6 +27,7 @@ from pyrender.constants import RenderFlags
 from pyrender import MetallicRoughnessMaterial, Texture, Primitive, Mesh as PyMesh
 from trimesh.visual import TextureVisuals
 from PIL import Image
+from render_one_camera import sample_cameras_on_circle
 
 
 # ================================
@@ -43,6 +44,30 @@ def fibonacci_sphere(n):
         x = np.cos(theta) * radius
         z = np.sin(theta) * radius
         points.append([x, y, z])
+    return np.array(points)
+
+
+# ================================
+# 🌐 经度×纬度 规则球面采样
+# ================================
+def latlon_sphere(n_lon=10):
+    """
+    n_lat: 纬度方向采样数
+    n_lon: 经度方向采样数（默认 10）
+    return: (n_lat * n_lon, 3)
+    """
+    points = []
+
+    # 经度：[0, 2pi)
+    longitudes = np.linspace(0, 2 * np.pi, n_lon, endpoint=False)
+    
+    phi = 0
+    for lam in longitudes:     # 经度
+        x = np.cos(phi) * np.cos(lam)
+        y = np.sin(phi)
+        z = np.cos(phi) * np.sin(lam)
+        points.append([x, y, z])
+
     return np.array(points)
 
 
@@ -223,7 +248,7 @@ def render_glb_universal(
     # -------------------------------
     # 2. 生成相机位置（在包围球外）
     # -------------------------------
-    points_on_unit_sphere = fibonacci_sphere(n_cameras)
+    points_on_unit_sphere = latlon_sphere() # fibonacci_sphere(n_cameras)
     camera_positions = center + radius * sphere_scale * points_on_unit_sphere
 
     # -------------------------------
@@ -297,6 +322,44 @@ def render_glb_universal(
         y_axis = np.cross(z_axis, x_axis)
 
         R_c2w = np.column_stack((x_axis, y_axis, z_axis))  # 列为轴
+
+        # 添加相机参数
+        flip_z = np.diag([1, -1, -1])
+        R_c2w_3dgs = R_c2w @ flip_z
+        R_w2c = R_c2w_3dgs.T
+
+        cameras_data.append({
+            "id": i,
+            "img_name": f"frame_{i:05d}.png",
+            "width": img_width,
+            "height": img_height,
+            "position": pos.tolist(),
+            "rotation": R_w2c.tolist(),
+            "fy": fy,
+            "fx": fx
+        })
+    
+    # 扩展采样
+    all_cameras = [] + cameras_data
+    for cam in cameras_data:
+        new_cams = sample_cameras_on_circle(cam, center, radius=radius, n=6)
+        all_cameras += new_cams
+        
+    for i, cam in enumerate(all_cameras):
+        # --- 设置相机 pose（含正确朝向）---
+        pos = np.asarray(cam["position"])
+        up = np.array([0, 1, 0])
+        z_axis = pos - center
+        z_axis /= np.linalg.norm(z_axis)
+
+        x_axis = np.cross(up, z_axis)
+        if np.linalg.norm(x_axis) < 1e-6:
+            x_axis = np.cross(np.array([1, 0, 0]), z_axis)
+        x_axis /= np.linalg.norm(x_axis)
+
+        y_axis = np.cross(z_axis, x_axis)
+
+        R_c2w = np.column_stack((x_axis, y_axis, z_axis))  # 列为轴
         T = np.eye(4)
         T[:3, :3] = R_c2w
         T[:3, 3] = pos
@@ -311,25 +374,16 @@ def render_glb_universal(
             print(f"📸 Rendered: {img_path}")
         except Exception as e:
             print(f"⚠️ Rendering failed for camera {i}: {e}")
-
-        # 添加相机参数
-        cameras_data.append({
-            "id": i,
-            "img_name": f"frame_{i:05d}.png",
-            "width": img_width,
-            "height": img_height,
-            "position": pos.tolist(),
-            "rotation": R_c2w.tolist(),
-            "fy": fy,
-            "fx": fx
-        })
+        
+        cam["img_name"] = f"frame_{i:05d}.png"
+        
 
     # -------------------------------
     # 6. 保存相机参数
     # -------------------------------
     json_path = os.path.join(output_dir, "cameras.json")
     with open(json_path, 'w') as f:
-        json.dump(cameras_data, f, indent=2)
+        json.dump(all_cameras, f, indent=2)
     print(f"💾 Camera parameters saved to: {json_path}")
 
     # -------------------------------
@@ -357,7 +411,7 @@ if __name__ == "__main__":
     render_glb_universal(
         glb_path=input_glb,
         output_dir=output_dir,
-        n_cameras=64,
+        n_cameras=5,
         img_width=1024,
         img_height=1024,
         sphere_scale=2.0
