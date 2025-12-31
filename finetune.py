@@ -70,12 +70,15 @@ def training(dataset, opt, pipe, camera_path, train_points_num_path, finetuned_m
             "gt_image": transforms.ToTensor()(Image.open(image_path).convert("RGB")),
             "gt_depth": torch.from_numpy(np.load(depth_path)).float(),
         })
-        
-    # 准备训练的mask
-    with open(train_points_num_path, 'r') as f:
-        train_points_num = int(f.read().strip())
-        train_mask = torch.zeros(gaussians._xyz.shape[0], dtype=torch.bool, device="cuda")
-        train_mask[:train_points_num] = True
+    
+    if train_points_num_path is not None and train_points_num_path != "":
+        # 准备训练的mask
+        with open(train_points_num_path, 'r') as f:
+            train_points_num = int(f.read().strip())
+            train_mask = torch.zeros(gaussians._xyz.shape[0], dtype=torch.bool, device="cuda")
+            train_mask[:train_points_num] = True
+    else:
+        train_mask = torch.ones(gaussians._xyz.shape[0], dtype=torch.bool, device="cuda")
     
     viewpoint_indices = list(range(len(viewpoint_stack)))
     ema_loss_for_log = 0.0
@@ -115,16 +118,12 @@ def training(dataset, opt, pipe, camera_path, train_points_num_path, finetuned_m
             # grad shape = (N, C)
             grad[~train_mask] = 0
             return grad
-        
-        def no_grad(grad):
-            grad[:] = 0
-            return grad
 
         gaussians._xyz.register_hook(mask_grad)
         gaussians._scaling.register_hook(mask_grad)
         gaussians._rotation.register_hook(mask_grad)
-        gaussians._features_dc.register_hook(no_grad)
-        gaussians._features_rest.register_hook(no_grad)
+        gaussians._features_dc.register_hook(mask_grad)
+        gaussians._features_rest.register_hook(mask_grad)
         gaussians._opacity.register_hook(mask_grad)
 
         # Loss

@@ -50,23 +50,25 @@ def fibonacci_sphere(n):
 # ================================
 # 🌐 经度×纬度 规则球面采样
 # ================================
-def latlon_sphere(n_lon=10):
+def latlon_sphere(n_lon=8):
     """
     n_lat: 纬度方向采样数
-    n_lon: 经度方向采样数（默认 10）
+    n_lon: 经度方向采样数
     return: (n_lat * n_lon, 3)
     """
     points = []
 
+    # 只有0的效果是正确的
+    latitudes = [0]
     # 经度：[0, 2pi)
     longitudes = np.linspace(0, 2 * np.pi, n_lon, endpoint=False)
     
-    phi = 0
-    for lam in longitudes:     # 经度
-        x = np.cos(phi) * np.cos(lam)
-        y = np.sin(phi)
-        z = np.cos(phi) * np.sin(lam)
-        points.append([x, y, z])
+    for phi in latitudes:
+        for lam in longitudes:     # 经度
+            x = np.cos(phi) * np.cos(lam)
+            y = np.sin(phi)
+            z = np.cos(phi) * np.sin(lam)
+            points.append([x, y, z])
 
     return np.array(points)
 
@@ -341,10 +343,20 @@ def render_glb_universal(
     
     # 扩展采样
     all_cameras = [] + cameras_data
+    all_new_cams = []
     for cam in cameras_data:
         new_cams = sample_cameras_on_circle(cam, center, radius=radius, n=6)
-        all_cameras += new_cams
-        
+        all_new_cams += new_cams
+        new_cams = sample_cameras_on_circle(cam, center, radius=radius * 2, n=6)
+        all_new_cams += new_cams
+        new_cams = sample_cameras_on_circle(cam, center, radius=radius * 3, n=6)
+        all_new_cams += new_cams
+        new_cams = sample_cameras_on_circle(cam, center, radius=radius * 6, n=6)
+        all_new_cams += new_cams
+    for cam in all_new_cams:
+        # 设置中间点
+        cam["position"] = ((np.asarray(cam["position"]) + center) / 2).tolist()
+    all_cameras += all_new_cams
     for i, cam in enumerate(all_cameras):
         # --- 设置相机 pose（含正确朝向）---
         pos = np.asarray(cam["position"])
@@ -396,9 +408,10 @@ def render_glb_universal(
 # 🚀 主程序入口
 # ================================
 if __name__ == "__main__":
-    BASE_FOLDER = "/media/why/新加卷/xsf/商品3DGS/mesh_to_gs/"
+    PROJECT = "aniu"
+    BASE_FOLDER = f"/media/why/新加卷/xsf/商品3DGS/mesh_to_gs/{PROJECT}/"
     # 默认参数
-    input_glb = os.path.join(BASE_FOLDER, "shoes.glb")
+    input_glb = os.path.join(BASE_FOLDER, f"{PROJECT}.glb")
     output_dir = os.path.join(BASE_FOLDER, "render_output")
 
     if len(sys.argv) >= 3:

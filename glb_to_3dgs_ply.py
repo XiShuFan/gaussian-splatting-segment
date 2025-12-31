@@ -12,15 +12,16 @@ def RGB2SH(rgb):
 # =========================
 # 参数区
 # =========================
-GLB_PATH = "/media/why/新加卷/xsf/商品3DGS/mesh_to_gs/shoes.glb"
-OUTPUT_PLY = "/media/why/新加卷/xsf/商品3DGS/mesh_to_gs/shoes_3dgs.ply"
+PROJECT = "aniu"
+GLB_PATH = f"/media/why/新加卷/xsf/商品3DGS/mesh_to_gs/{PROJECT}/{PROJECT}.glb"
+OUTPUT_PLY = f"/media/why/新加卷/xsf/商品3DGS/mesh_to_gs/{PROJECT}/{PROJECT}_3dgs.ply"
 
 # 采样点数量
-NUM_POINTS = 600_000
+NUM_POINTS = 300_000
 # 不透明度
-ALPHA = 0.99
+ALPHA = 0.9999
 # 缩放系数
-SCALE_FACTOR = 2.0
+SCALE_FACTOR = 3.0
 
 
 # =========================
