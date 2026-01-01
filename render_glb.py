@@ -388,6 +388,9 @@ def render_glb_universal(
             print(f"⚠️ Rendering failed for camera {i}: {e}")
         
         cam["img_name"] = f"frame_{i:05d}.png"
+        cam["position"] = [-pos[0], -pos[1], pos[2]]
+        flip_xy = np.diag([-1.0, -1.0, 1.0])
+        cam["rotation"] = (flip_xy @ np.asarray(cam["rotation"])).tolist()
         
 
     # -------------------------------
@@ -408,7 +411,7 @@ def render_glb_universal(
 # 🚀 主程序入口
 # ================================
 if __name__ == "__main__":
-    PROJECT = "aniu"
+    PROJECT = "shoes"
     BASE_FOLDER = f"/media/why/新加卷/xsf/商品3DGS/mesh_to_gs/{PROJECT}/"
     # 默认参数
     input_glb = os.path.join(BASE_FOLDER, f"{PROJECT}.glb")

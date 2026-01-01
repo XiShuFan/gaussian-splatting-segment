@@ -12,7 +12,7 @@ def RGB2SH(rgb):
 # =========================
 # 参数区
 # =========================
-PROJECT = "aniu"
+PROJECT = "shoes"
 GLB_PATH = f"/media/why/新加卷/xsf/商品3DGS/mesh_to_gs/{PROJECT}/{PROJECT}.glb"
 OUTPUT_PLY = f"/media/why/新加卷/xsf/商品3DGS/mesh_to_gs/{PROJECT}/{PROJECT}_3dgs.ply"
 
@@ -149,7 +149,7 @@ scales = np.stack([scale_scalar, scale_scalar, normal], axis=1)
 # 7. Rotation（简化：identity）
 # Super Splat / 多数 GS Viewer 对 rotation 不敏感
 # =========================
-rotations = np.tile([0.0, 0.0, 0.0, 0.0], (NUM_POINTS, 1))  # quaternion (w,x,y,z)
+rotations = np.tile([1.0, 0.0, 0.0, 0.0], (NUM_POINTS, 1))  # quaternion (w,x,y,z)
 
 # =========================
 # 8. Alpha
@@ -256,8 +256,8 @@ end_header
 vertex_data["x"] = -points[:, 0]
 vertex_data["y"] = -points[:, 1]
 """
-vertex_data["x"] = points[:, 0]
-vertex_data["y"] = points[:, 1]
+vertex_data["x"] = -points[:, 0]
+vertex_data["y"] = -points[:, 1]
 vertex_data["z"] = points[:, 2]
 
 # 球谐函数颜色

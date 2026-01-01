@@ -31,7 +31,8 @@ def render_cameras(model_path, sh_degree, cam_json_path, pipeline, render_path, 
             render_result = render(origin_view, gaussians, pipeline, background)
             invdepth = render_result["depth"].squeeze(0)
             rendering = render_result["render"]
-            torchvision.utils.save_image(rendering, os.path.join(render_path, cam["img_name"]))
+            # TODO 保存图片用于debug
+            # torchvision.utils.save_image(rendering, os.path.join(render_path, cam["img_name"]))
             np.save(os.path.join(depth_path, cam["img_name"].replace('.png', '.npy')), invdepth.cpu().detach().numpy())
         
     return
@@ -42,7 +43,7 @@ if __name__ == "__main__":
     parser = ArgumentParser(description="Testing script parameters")
     pipeline = PipelineParams(parser)
     args = parser.parse_args()
-    PROJECT = "aniu"
+    PROJECT = "shoes"
     
     model_path = f"/media/why/新加卷/xsf/商品3DGS/mesh_to_gs/{PROJECT}/{PROJECT}_3dgs.ply"
     cam_json_path = f"/media/why/新加卷/xsf/商品3DGS/mesh_to_gs/{PROJECT}/render_output/cameras.json"
