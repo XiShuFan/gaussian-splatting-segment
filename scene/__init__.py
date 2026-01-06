@@ -83,9 +83,22 @@ class Scene:
         else:
             self.gaussians.create_from_pcd(scene_info.point_cloud, scene_info.train_cameras, self.cameras_extent)
 
-    def save(self, iteration):
+    def save(self, iteration, is_bbox_locate):
         point_cloud_path = os.path.join(self.model_path, "point_cloud/iteration_{}".format(iteration))
-        self.gaussians.save_ply(os.path.join(point_cloud_path, "point_cloud.ply"))
+        if is_bbox_locate:
+            self.gaussians.save_ply(os.path.join(point_cloud_path, "bbox.ply"))
+        else:
+            # TODO 读取之前训练好的bbox模型
+            bbox_gs = GaussianModel(self.gaussians.max_sh_degree, self.gaussians.optimizer_type)
+            bbox_gs.load_ply(os.path.join(point_cloud_path, "bbox.ply"), [])
+            min_xyz = bbox_gs._xyz.min(dim=0).values
+            max_xyz = bbox_gs._xyz.max(dim=0).values
+            in_bbox_mask = (
+                (self.gaussians._xyz >= min_xyz) &
+                (self.gaussians._xyz <= max_xyz)
+            ).all(dim=1)
+            sub_gaussians = self.gaussians.get_sub_gaussian_model(in_bbox_mask)
+            sub_gaussians.save_ply(os.path.join(point_cloud_path, "point_cloud.ply"))
         exposure_dict = {
             image_name: self.gaussians.get_exposure_from_name(image_name).detach().cpu().numpy().tolist()
             for image_name in self.gaussians.exposure_mapping

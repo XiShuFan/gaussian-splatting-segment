@@ -41,7 +41,7 @@ try:
 except:
     SPARSE_ADAM_AVAILABLE = False
 
-def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoint_iterations, checkpoint, debug_from):
+def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoint_iterations, checkpoint, debug_from, is_bbox_locate):
 
     if not SPARSE_ADAM_AVAILABLE and opt.optimizer_type == "sparse_adam":
         sys.exit(f"Trying to use sparse adam but it is not installed, please install the correct rasterizer using pip install [3dgs_accel].")
@@ -118,11 +118,14 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
 
         # Loss
         gt_image = viewpoint_cam.original_image.cuda()
-        gt_mask = viewpoint_cam.original_mask.cuda()
+        if is_bbox_locate:
+            gt_mask = viewpoint_cam.original_mask.cuda()
+        else:
+            gt_mask = None
         Ll1 = masked_l1_loss(image, gt_image, gt_mask)
         
         if FUSED_SSIM_AVAILABLE:
-            ssim_value = fused_ssim(image.unsqueeze(0), gt_image.unsqueeze(0), gt_mask.unsqueeze(0))
+            ssim_value = fused_ssim(image.unsqueeze(0), gt_image.unsqueeze(0), gt_mask.unsqueeze(0) if gt_mask is not None else None)
         else:
             ssim_value = ssim(image, gt_image, gt_mask)
 
@@ -137,7 +140,10 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
 
             diff = invDepth  - mono_invdepth
             # INFO 加上前景掩码效果会变差
-            combined_mask = depth_mask
+            if is_bbox_locate:
+                combined_mask = depth_mask * gt_mask
+            else:
+                combined_mask = depth_mask
             Ll1depth_pure = torch.abs(diff * combined_mask).sum() / (combined_mask.sum() + 1e-8)
             Ll1depth = depth_l1_weight(iteration) * Ll1depth_pure 
             loss += Ll1depth * 10.0
@@ -163,8 +169,21 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
             # Log and save
             # training_report(tb_writer, iteration, Ll1, loss, l1_loss, iter_start.elapsed_time(iter_end), testing_iterations, scene, render, (pipe, background, 1., SPARSE_ADAM_AVAILABLE, None, dataset.train_test_exp), dataset.train_test_exp)
             if (iteration in saving_iterations):
+                # TODO 只保存mask对应的高斯
+                # N = gaussians._xyz.shape[0]
+                # valid_eval_mask = torch.zeros(N, dtype=torch.bool, device="cuda")
+                # eval_viewpoint_stack = scene.getTrainCameras().copy()
+                # for eval_cam in eval_viewpoint_stack:
+                #     render_pkg = render(eval_cam, gaussians, pipe, bg, use_trained_exp=dataset.train_test_exp, separate_sh=SPARSE_ADAM_AVAILABLE)
+                #     pixel_gaussian_ids = render_pkg["pixel_gaussian_ids"]
+                #     pixel_gaussian_counts = render_pkg["pixel_gaussian_counts"]
+                #     gt_mask = viewpoint_cam.original_mask.cuda()
+                #     eval_mask = get_gaussian_mapping_mask(gt_mask, pixel_gaussian_counts, pixel_gaussian_ids, gaussians)
+                #     valid_eval_mask |= eval_mask
+                # valid_eval_gaussians = gaussians.get_sub_gaussian_model(valid_eval_mask)
+                
                 print("\n[ITER {}] Saving Gaussians".format(iteration))
-                scene.save(iteration)
+                scene.save(iteration, is_bbox_locate)
 
             # Densification
             if iteration < opt.densify_until_iter:
@@ -288,7 +307,7 @@ if __name__ == "__main__":
     if not args.disable_viewer:
         network_gui.init(args.ip, args.port)
     torch.autograd.set_detect_anomaly(args.detect_anomaly)
-    training(lp.extract(args), op.extract(args), pp.extract(args), args.test_iterations, args.save_iterations, args.checkpoint_iterations, args.start_checkpoint, args.debug_from)
-
+    training(lp.extract(args), op.extract(args), pp.extract(args), args.test_iterations, args.save_iterations, args.checkpoint_iterations, args.start_checkpoint, args.debug_from, is_bbox_locate=True)
+    training(lp.extract(args), op.extract(args), pp.extract(args), args.test_iterations, args.save_iterations, args.checkpoint_iterations, args.start_checkpoint, args.debug_from, is_bbox_locate=False)
     # All done
     print("\nTraining complete.")
