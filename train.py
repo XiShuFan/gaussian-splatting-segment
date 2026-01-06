@@ -119,7 +119,11 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         # Loss
         gt_image = viewpoint_cam.original_image.cuda()
         if is_bbox_locate:
-            gt_mask = viewpoint_cam.original_mask.cuda()
+            zero_mask = viewpoint_cam.original_mask.cuda()
+            zero_mask = zero_mask.squeeze(0) < 1e-6
+            # 掩码外为黑色
+            gt_image[:, zero_mask] = 0.0
+            gt_mask = None
         else:
             gt_mask = None
         Ll1 = masked_l1_loss(image, gt_image, gt_mask)
@@ -137,13 +141,14 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
             invDepth = render_pkg["depth"]
             mono_invdepth = viewpoint_cam.invdepthmap.cuda()
             depth_mask = viewpoint_cam.depth_mask.cuda()
-
-            diff = invDepth  - mono_invdepth
-            # INFO 加上前景掩码效果会变差
+            
             if is_bbox_locate:
-                combined_mask = depth_mask * gt_mask
+                combined_mask = depth_mask
+                mono_invdepth[:, zero_mask] = 0.0
             else:
                 combined_mask = depth_mask
+            
+            diff = invDepth  - mono_invdepth
             Ll1depth_pure = torch.abs(diff * combined_mask).sum() / (combined_mask.sum() + 1e-8)
             Ll1depth = depth_l1_weight(iteration) * Ll1depth_pure 
             loss += Ll1depth * 10.0
