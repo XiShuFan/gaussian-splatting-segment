@@ -170,7 +170,6 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         per_view_loss_weight = loss.item() / (sum(loss_per_view.values()) / len(loss_per_view))
         loss_weight_per_view[view_name] = per_view_loss_weight
         loss *= per_view_loss_weight
-        viewspace_point_tensor *= per_view_loss_weight
         
         # TODO 回填困难视角
         # if per_view_loss_weight > 2:
@@ -216,7 +215,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
             if iteration < opt.densify_until_iter:
                 # Keep track of max radii in image-space for pruning
                 gaussians.max_radii2D[visibility_filter] = torch.max(gaussians.max_radii2D[visibility_filter], radii[visibility_filter])
-                gaussians.add_densification_stats(viewspace_point_tensor, visibility_filter)
+                gaussians.add_densification_stats(viewspace_point_tensor, visibility_filter, per_view_loss_weight)
 
                 if iteration > opt.densify_from_iter and iteration % opt.densification_interval == 0:
                     # TODO 允许一个高斯在屏幕上最大投影半径
