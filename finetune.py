@@ -65,10 +65,12 @@ def training(dataset, opt, pipe, camera_path, train_points_num_path, finetuned_m
     for cam in train_cameras:
         image_path = os.path.join(dataset.images, cam["img_name"])
         depth_path = os.path.join(dataset.depths, cam["img_name"].replace('render', 'depth').replace('.png', '.npy'))
+        # mask_path = os.path.join(dataset.masks, cam["img_name"])
         viewpoint_stack.append({
             "view": get_view_from_camera(cam),
             "gt_image": transforms.ToTensor()(Image.open(image_path).convert("RGB")),
             "gt_depth": torch.from_numpy(np.load(depth_path)).float(),
+            # "gt_mask": torch.from_numpy(np.array((Image.open(mask_path).convert("L")), dtype=np.float32)).unsqueeze(0)[:3, ...] / 255.0
         })
     
     if train_points_num_path is not None and train_points_num_path != "":

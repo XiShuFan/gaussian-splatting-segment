@@ -11,6 +11,8 @@
 
 import os
 import torch
+import statistics
+import math
 from random import randint
 from utils.loss_utils import l1_loss, ssim, masked_l1_loss
 from gaussian_renderer import render, network_gui
@@ -42,7 +44,11 @@ except:
     SPARSE_ADAM_AVAILABLE = False
 
 def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoint_iterations, checkpoint, debug_from, is_bbox_locate):
-
+    # 两倍
+    if not is_bbox_locate:
+        opt.iterations *= 2
+        saving_iterations.append(opt.iterations)
+    
     if not SPARSE_ADAM_AVAILABLE and opt.optimizer_type == "sparse_adam":
         sys.exit(f"Trying to use sparse adam but it is not installed, please install the correct rasterizer using pip install [3dgs_accel].")
 
@@ -103,6 +109,15 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         # Pick a random Camera
         if not viewpoint_stack:
             viewpoint_stack = scene.getTrainCameras().copy()
+            # TODO 回填视角
+            additional_views = []
+            if not is_bbox_locate:
+                view_mean_loss = statistics.mean(loss_per_view.values())
+                for view_iter in viewpoint_stack:
+                    view_loss_iter = loss_per_view[view_iter.image_name]
+                    additional_times = math.ceil(view_loss_iter / view_mean_loss) - 1
+                    additional_views += [view_iter] * additional_times
+            viewpoint_stack += additional_views
             viewpoint_indices = list(range(len(viewpoint_stack)))
         rand_idx = randint(0, len(viewpoint_indices) - 1)
         viewpoint_cam = viewpoint_stack.pop(rand_idx)
@@ -170,12 +185,6 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         per_view_loss_weight = loss.item() / (sum(loss_per_view.values()) / len(loss_per_view))
         loss_weight_per_view[view_name] = per_view_loss_weight
         loss *= per_view_loss_weight
-        
-        # TODO 回填困难视角
-        # if per_view_loss_weight > 2:
-        #     viewpoint_stack.append(viewpoint_cam)
-        #     viewpoint_indices.append(vind)
-        #     print("回填困难视角", view_name)
 
         loss.backward()
 

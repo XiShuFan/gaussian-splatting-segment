@@ -89,13 +89,15 @@ class Scene:
             self.gaussians.save_ply(os.path.join(point_cloud_path, "bbox.ply"))
         else:
             # TODO 读取之前训练好的bbox模型
-            bbox_gs = GaussianModel(self.gaussians.max_sh_degree, self.gaussians.optimizer_type)
-            bbox_gs.load_ply(os.path.join(point_cloud_path, "bbox.ply"), [])
-            min_xyz = bbox_gs._xyz.min(dim=0).values
-            max_xyz = bbox_gs._xyz.max(dim=0).values
+            bbox_path = os.path.join(point_cloud_path, "bbox.ply")
+            if os.path.exists(bbox_path):
+                bbox_gs = GaussianModel(self.gaussians.max_sh_degree, self.gaussians.optimizer_type)
+                bbox_gs.load_ply(bbox_path, [])
+                self.min_xyz = bbox_gs._xyz.min(dim=0).values
+                self.max_xyz = bbox_gs._xyz.max(dim=0).values
             in_bbox_mask = (
-                (self.gaussians._xyz >= min_xyz) &
-                (self.gaussians._xyz <= max_xyz)
+                (self.gaussians._xyz >= self.min_xyz) &
+                (self.gaussians._xyz <= self.max_xyz)
             ).all(dim=1)
             sub_gaussians = self.gaussians.get_sub_gaussian_model(in_bbox_mask)
             sub_gaussians.save_ply(os.path.join(point_cloud_path, "point_cloud.ply"))
