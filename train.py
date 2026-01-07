@@ -68,6 +68,9 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
     viewpoint_indices = list(range(len(viewpoint_stack)))
     ema_loss_for_log = 0.0
     ema_Ll1depth_for_log = 0.0
+    
+    # 每个视角的损失值
+    loss_per_view = {}
 
     progress_bar = tqdm(range(first_iter, opt.iterations), desc="Training progress")
     first_iter += 1
@@ -102,6 +105,9 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         rand_idx = randint(0, len(viewpoint_indices) - 1)
         viewpoint_cam = viewpoint_stack.pop(rand_idx)
         vind = viewpoint_indices.pop(rand_idx)
+        
+        # 当前视角名称
+        view_name = viewpoint_cam.image_name
 
         # Render
         if (iteration - 1) == debug_from:
@@ -155,6 +161,12 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
             Ll1depth = Ll1depth.item()
         else:
             Ll1depth = 0
+        
+        # 更新当前视角损失
+        loss_per_view[view_name] = loss.item()
+        # 计算当前所有视角的平均损失，计算权重
+        per_view_loss_weight = loss.item() / (sum(loss_per_view.values()) / len(loss_per_view))
+        loss *= per_view_loss_weight
 
         loss.backward()
 
@@ -221,6 +233,8 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
             if (iteration in checkpoint_iterations):
                 print("\n[ITER {}] Saving Checkpoint".format(iteration))
                 torch.save((gaussians.capture(), iteration), scene.model_path + "/chkpnt" + str(iteration) + ".pth")
+    # 输出每个视角的损失值
+    print(loss_per_view)
 
 def prepare_output_and_logger(args):    
     if not args.model_path:
