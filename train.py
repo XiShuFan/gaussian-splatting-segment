@@ -168,16 +168,15 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         loss_per_view[view_name] = loss.item()
         # 计算当前所有视角的平均损失，计算权重
         per_view_loss_weight = loss.item() / (sum(loss_per_view.values()) / len(loss_per_view))
-        # 平方权重
-        per_view_loss_weight = per_view_loss_weight * per_view_loss_weight
         loss_weight_per_view[view_name] = per_view_loss_weight
         loss *= per_view_loss_weight
+        viewspace_point_tensor *= per_view_loss_weight
         
         # TODO 回填困难视角
-        if per_view_loss_weight > 5:
-            viewpoint_stack.append(viewpoint_cam)
-            viewpoint_indices.append(vind)
-            print("回填困难视角", view_name)
+        # if per_view_loss_weight > 2:
+        #     viewpoint_stack.append(viewpoint_cam)
+        #     viewpoint_indices.append(vind)
+        #     print("回填困难视角", view_name)
 
         loss.backward()
 
@@ -221,7 +220,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
 
                 if iteration > opt.densify_from_iter and iteration % opt.densification_interval == 0:
                     # TODO 允许一个高斯在屏幕上最大投影半径
-                    size_threshold = 5 if iteration > opt.opacity_reset_interval else None
+                    size_threshold = 20 if iteration > opt.opacity_reset_interval else None
                     gaussians.densify_and_prune(max_grad=opt.densify_grad_threshold, 
                                                 min_opacity=0.05, extent=scene.cameras_extent, 
                                                 max_screen_size=size_threshold, radii=radii)
