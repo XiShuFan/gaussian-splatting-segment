@@ -15,6 +15,7 @@ import statistics
 import math
 from random import randint
 from utils.loss_utils import l1_loss, ssim, masked_l1_loss
+from utils.edge_loss_utils import sobel_edge_loss, laplacian_loss
 from gaussian_renderer import render, network_gui
 import sys
 from scene import Scene, GaussianModel
@@ -116,7 +117,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                 for view_iter in viewpoint_stack:
                     view_loss_iter = loss_per_view[view_iter.image_name]
                     additional_times = math.ceil(view_loss_iter / view_mean_loss) - 1
-                    additional_views += [view_iter] * additional_times
+                    additional_views += [view_iter] * (additional_times * 2)
             viewpoint_stack += additional_views
             viewpoint_indices = list(range(len(viewpoint_stack)))
         rand_idx = randint(0, len(viewpoint_indices) - 1)
@@ -141,9 +142,9 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
 
         # Loss
         gt_image = viewpoint_cam.original_image.cuda()
+        foreground_mask = viewpoint_cam.original_mask.cuda()
         if is_bbox_locate:
-            zero_mask = viewpoint_cam.original_mask.cuda()
-            zero_mask = zero_mask.squeeze(0) < 1e-6
+            zero_mask = foreground_mask.squeeze(0) < 1e-6
             # 掩码外为黑色
             gt_image[:, zero_mask] = 0.0
             gt_mask = None
@@ -151,12 +152,28 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
             gt_mask = None
         Ll1 = masked_l1_loss(image, gt_image, gt_mask)
         
+        if not is_bbox_locate:
+            foreground_Ll1 = masked_l1_loss(image, gt_image, foreground_mask)
+        
         if FUSED_SSIM_AVAILABLE:
             ssim_value = fused_ssim(image.unsqueeze(0), gt_image.unsqueeze(0), gt_mask.unsqueeze(0) if gt_mask is not None else None)
+            if not is_bbox_locate:
+                foreground_ssim = fused_ssim(image.unsqueeze(0), gt_image.unsqueeze(0), foreground_mask.unsqueeze(0))
         else:
             ssim_value = ssim(image, gt_image, gt_mask)
+            if not is_bbox_locate:
+                foreground_ssim = ssim(image, gt_image, foreground_mask)
 
         loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim_value)
+        
+        # 边缘损失
+        edge_l1 = sobel_edge_loss(image, gt_image)
+        lap_loss = laplacian_loss(image, gt_image)
+        loss += 0.9 * edge_l1 + 0.1 * lap_loss
+        
+        
+        if not is_bbox_locate:
+            foreground_loss = (1.0 - opt.lambda_dssim) * foreground_Ll1 + opt.lambda_dssim * (1.0 - foreground_ssim)
 
         # Depth regularization
         Ll1depth_pure = 0.0
@@ -176,14 +193,31 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
             Ll1depth = depth_l1_weight(iteration) * Ll1depth_pure 
             loss += Ll1depth * 10.0
             Ll1depth = Ll1depth.item()
+            
+            if not is_bbox_locate:
+                combined_mask = depth_mask * foreground_mask
+                diff = invDepth  - mono_invdepth
+                foreground_Ll1depth_pure = torch.abs(diff * combined_mask).sum() / (combined_mask.sum() + 1e-8)
+                foreground_Ll1depth = depth_l1_weight(iteration) * foreground_Ll1depth_pure 
+                foreground_loss += foreground_Ll1depth * 10.0
         else:
             Ll1depth = 0
         
         # 更新当前视角损失
-        loss_per_view[view_name] = loss.item()
-        # 计算当前所有视角的平均损失，计算权重
-        per_view_loss_weight = loss.item() / (sum(loss_per_view.values()) / len(loss_per_view))
-        loss_weight_per_view[view_name] = per_view_loss_weight
+        if is_bbox_locate:
+            loss_per_view[view_name] = loss.item()
+            # 计算当前所有视角的平均损失，计算权重
+            per_view_loss_weight = loss.item() / (sum(loss_per_view.values()) / len(loss_per_view))
+            loss_weight_per_view[view_name] = per_view_loss_weight
+        else:
+            loss_per_view[view_name] = foreground_loss.item()
+            # 计算当前所有视角的平均损失，计算权重
+            per_view_loss_weight = foreground_loss.item() / (sum(loss_per_view.values()) / len(loss_per_view))
+            loss_weight_per_view[view_name] = per_view_loss_weight
+            # loss = loss * 0.5 + foreground_loss * 0.5
+        
+        # 小于1的权重设置为1
+        per_view_loss_weight = max(per_view_loss_weight, 1.0)
         loss *= per_view_loss_weight
 
         loss.backward()
@@ -228,7 +262,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
 
                 if iteration > opt.densify_from_iter and iteration % opt.densification_interval == 0:
                     # TODO 允许一个高斯在屏幕上最大投影半径
-                    size_threshold = 20 if iteration > opt.opacity_reset_interval else None
+                    size_threshold = 5 if iteration > opt.opacity_reset_interval else None
                     gaussians.densify_and_prune(max_grad=opt.densify_grad_threshold, 
                                                 min_opacity=0.05, extent=scene.cameras_extent, 
                                                 max_screen_size=size_threshold, radii=radii)
@@ -345,7 +379,12 @@ if __name__ == "__main__":
     if not args.disable_viewer:
         network_gui.init(args.ip, args.port)
     torch.autograd.set_detect_anomaly(args.detect_anomaly)
-    training(lp.extract(args), op.extract(args), pp.extract(args), args.test_iterations, args.save_iterations, args.checkpoint_iterations, args.start_checkpoint, args.debug_from, is_bbox_locate=True)
-    training(lp.extract(args), op.extract(args), pp.extract(args), args.test_iterations, args.save_iterations, args.checkpoint_iterations, args.start_checkpoint, args.debug_from, is_bbox_locate=False)
+    dataset = lp.extract(args)
+    opt = op.extract(args)
+    pipe = pp.extract(args)
+    training(dataset, opt, pipe, args.test_iterations, args.save_iterations, args.checkpoint_iterations, args.start_checkpoint, args.debug_from, is_bbox_locate=True)
+    training(dataset, opt, pipe, args.test_iterations, args.save_iterations, args.checkpoint_iterations, args.start_checkpoint, args.debug_from, is_bbox_locate=False)
     # All done
     print("\nTraining complete.")
+    
+    os.system(f"python render.py -s {dataset.source_path} --model_path {dataset.model_path} -r 1")
