@@ -45,9 +45,10 @@ except:
     SPARSE_ADAM_AVAILABLE = False
 
 def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoint_iterations, checkpoint, debug_from, is_bbox_locate):
+    bbox_iter = opt.iterations
     # 两倍
     if not is_bbox_locate:
-        opt.iterations *= 2
+        opt.iterations = math.ceil(opt.iterations * 1.5)
         saving_iterations.append(opt.iterations)
     
     if not SPARSE_ADAM_AVAILABLE and opt.optimizer_type == "sparse_adam":
@@ -56,7 +57,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
     first_iter = 0
     tb_writer = prepare_output_and_logger(dataset)
     gaussians = GaussianModel(dataset.sh_degree, opt.optimizer_type)
-    scene = Scene(dataset, gaussians)
+    scene = Scene(dataset, gaussians, is_bbox_locate=is_bbox_locate, bbox_iter=bbox_iter)
     gaussians.training_setup(opt)
     if checkpoint:
         (model_params, first_iter) = torch.load(checkpoint)
@@ -117,7 +118,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                 for view_iter in viewpoint_stack:
                     view_loss_iter = loss_per_view[view_iter.image_name]
                     additional_times = math.ceil(view_loss_iter / view_mean_loss) - 1
-                    additional_views += [view_iter] * (additional_times * 2)
+                    additional_views += [view_iter] * additional_times
             viewpoint_stack += additional_views
             viewpoint_indices = list(range(len(viewpoint_stack)))
         rand_idx = randint(0, len(viewpoint_indices) - 1)
@@ -177,7 +178,8 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
 
         # Depth regularization
         Ll1depth_pure = 0.0
-        if depth_l1_weight(iteration) > 0 and viewpoint_cam.depth_reliable:
+        # 如果当前视角误差太大，就不要考虑深度了，首先保证颜色
+        if depth_l1_weight(iteration) > 0 and viewpoint_cam.depth_reliable and not (loss_weight_per_view.get(view_name, 1) > 2.0):
             invDepth = render_pkg["depth"]
             mono_invdepth = viewpoint_cam.invdepthmap.cuda()
             depth_mask = viewpoint_cam.depth_mask.cuda()
@@ -288,6 +290,8 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
     # 输出每个视角的损失值
     print("loss_pre_view", loss_per_view)
     print("loss_weight_per_view", loss_weight_per_view)
+    
+    return loss_weight_per_view
 
 def prepare_output_and_logger(args):    
     if not args.model_path:

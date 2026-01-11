@@ -22,13 +22,15 @@ class Scene:
 
     gaussians : GaussianModel
 
-    def __init__(self, args : ModelParams, gaussians : GaussianModel, load_iteration=None, shuffle=True, resolution_scales=[1.0]):
+    def __init__(self, args : ModelParams, gaussians : GaussianModel, is_bbox_locate: bool, bbox_iter: int, load_iteration=None, shuffle=True, resolution_scales=[1.0]):
         """b
         :param path: Path to colmap scene main folder.
         """
         self.model_path = args.model_path
         self.loaded_iter = None
         self.gaussians = gaussians
+        self.is_bbox_locate = is_bbox_locate
+        self.bbox_iter = bbox_iter
 
         if load_iteration:
             if load_iteration == -1:
@@ -81,6 +83,10 @@ class Scene:
                                                            "iteration_" + str(self.loaded_iter),
                                                            "point_cloud.ply"), scene_info.train_cameras, args.train_test_exp)
         else:
+            self.gaussians.is_bbox_locate = is_bbox_locate
+            self.gaussians.bbox_iter = bbox_iter
+            self.gaussians.model_path = args.model_path
+            self.gaussians.cam_infos = scene_info.train_cameras
             self.gaussians.create_from_pcd(scene_info.point_cloud, scene_info.train_cameras, self.cameras_extent)
 
     def save(self, iteration, is_bbox_locate):
@@ -101,6 +107,9 @@ class Scene:
             ).all(dim=1)
             sub_gaussians = self.gaussians.get_sub_gaussian_model(in_bbox_mask)
             sub_gaussians.save_ply(os.path.join(point_cloud_path, "point_cloud.ply"))
+            # self.gaussians.save_ply(os.path.join(point_cloud_path, "full.ply"))
+            
+        # 
         exposure_dict = {
             image_name: self.gaussians.get_exposure_from_name(image_name).detach().cpu().numpy().tolist()
             for image_name in self.gaussians.exposure_mapping

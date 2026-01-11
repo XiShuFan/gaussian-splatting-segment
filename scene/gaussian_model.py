@@ -17,7 +17,7 @@ import os
 import json
 from utils.system_utils import mkdir_p
 from plyfile import PlyData, PlyElement
-from utils.sh_utils import RGB2SH
+from utils.sh_utils import RGB2SH, SH2RGB
 from simple_knn._C import distCUDA2
 from utils.graphics_utils import BasicPointCloud
 from utils.general_utils import strip_symmetric, build_scaling_rotation
@@ -176,6 +176,20 @@ class GaussianModel:
     def create_from_pcd(self, pcd : BasicPointCloud, cam_infos : int, spatial_lr_scale : float, full_opacity : bool = False, half_scale : bool = False):
         # 相机距离平均中心的最大半径作为空间学习率缩放
         self.spatial_lr_scale = spatial_lr_scale
+        
+        if not self.is_bbox_locate:
+            # 读取之前训练好的bbox模型
+            box_gaussians = GaussianModel(self.max_sh_degree, self.optimizer_type)
+            box_gaussians.load_ply(os.path.join(self.model_path, "point_cloud", "iteration_" + str(self.bbox_iter), "bbox.ply"), self.cam_infos)
+            box_xyz = box_gaussians.get_xyz.cpu().detach().numpy()
+            box_color = SH2RGB(box_gaussians.get_features_dc.cpu().detach().squeeze(1).numpy())
+            print("box_xyz, box_color", box_xyz.shape, box_color.shape)
+            pcd = BasicPointCloud(
+                np.concatenate([pcd.points, box_xyz], axis=0),
+                np.concatenate([pcd.colors, box_color], axis=0),
+                None
+            )
+        
         fused_point_cloud = torch.tensor(np.asarray(pcd.points)).float().cuda()
         fused_color = RGB2SH(torch.tensor(np.asarray(pcd.colors)).float().cuda())
         features = torch.zeros((fused_color.shape[0], 3, (self.max_sh_degree + 1) ** 2)).float().cuda()
