@@ -244,7 +244,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                 progress_bar.close()
 
             # 逆深度伪真值
-            if iteration > invdepth_pseudo_gt_factor * opt.iterations and len(invdepth_pre_view_pseudo_gt) == 0:
+            if iteration > invdepth_pseudo_gt_factor * opt.iterations and len(invdepth_per_view_pseudo_gt) == 0:
                 os.makedirs(os.path.join(dataset.model_path, "invdepth_pseudo_gt"), exist_ok=True)
                 eval_viewpoint_stack = scene.getTrainCameras().copy()
                 for eval_cam in eval_viewpoint_stack:
