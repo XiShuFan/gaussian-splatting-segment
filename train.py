@@ -48,7 +48,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
     bbox_iter = opt.iterations
     # 两倍
     if not is_bbox_locate:
-        opt.iterations = math.ceil(opt.iterations * 1.5)
+        opt.iterations += opt.opacity_reset_interval # math.ceil(opt.iterations * 1.5)
         saving_iterations.append(opt.iterations)
     
     if not SPARSE_ADAM_AVAILABLE and opt.optimizer_type == "sparse_adam":
@@ -81,6 +81,10 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
     loss_per_view = {}
     # 每个视角的权重
     loss_weight_per_view = {}
+
+    # 每个视角的逆深度 伪真值
+    invdepth_per_view_pseudo_gt = {}
+    invdepth_pseudo_gt_factor = 0.7
 
     progress_bar = tqdm(range(first_iter, opt.iterations), desc="Training progress")
     first_iter += 1
@@ -181,7 +185,10 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         # 如果当前视角误差太大，就不要考虑深度了，首先保证颜色
         if depth_l1_weight(iteration) > 0 and viewpoint_cam.depth_reliable and not (loss_weight_per_view.get(view_name, 1) > 2.0):
             invDepth = render_pkg["depth"]
-            mono_invdepth = viewpoint_cam.invdepthmap.cuda()
+            if len(invdepth_per_view_pseudo_gt) != 0:
+                mono_invdepth = invdepth_per_view_pseudo_gt[view_name]
+            else:
+                mono_invdepth = viewpoint_cam.invdepthmap.cuda()
             depth_mask = viewpoint_cam.depth_mask.cuda()
             
             if is_bbox_locate:
@@ -235,6 +242,16 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                 progress_bar.update(10)
             if iteration == opt.iterations:
                 progress_bar.close()
+
+            # 逆深度伪真值
+            if iteration > invdepth_pseudo_gt_factor * opt.iterations and len(invdepth_pre_view_pseudo_gt) == 0:
+                os.makedirs(os.path.join(dataset.model_path, "invdepth_pseudo_gt"), exist_ok=True)
+                eval_viewpoint_stack = scene.getTrainCameras().copy()
+                for eval_cam in eval_viewpoint_stack:
+                    render_pkg = render(eval_cam, gaussians, pipe, bg, use_trained_exp=dataset.train_test_exp, separate_sh=SPARSE_ADAM_AVAILABLE)
+                    invDepth = render_pkg["depth"]
+                    invdepth_per_view_pseudo_gt[eval_cam.image_name] = invDepth.detach()
+                    torchvision.utils.save_image(invDepth, os.path.join(dataset.model_path, "invdepth_pseudo_gt", eval_cam.image_name))
 
             # Log and save
             # training_report(tb_writer, iteration, Ll1, loss, l1_loss, iter_start.elapsed_time(iter_end), testing_iterations, scene, render, (pipe, background, 1., SPARSE_ADAM_AVAILABLE, None, dataset.train_test_exp), dataset.train_test_exp)
