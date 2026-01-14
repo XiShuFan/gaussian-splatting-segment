@@ -11,6 +11,7 @@
 
 import os
 import torch
+import torchvision
 import statistics
 import math
 from random import randint
