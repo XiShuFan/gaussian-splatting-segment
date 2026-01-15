@@ -17,6 +17,7 @@ from scene.dataset_readers import sceneLoadTypeCallbacks
 from scene.gaussian_model import GaussianModel
 from arguments import ModelParams
 from utils.camera_utils import cameraList_from_camInfos, camera_to_JSON
+import torch
 
 class Scene:
 
@@ -99,13 +100,33 @@ class Scene:
             if os.path.exists(bbox_path):
                 bbox_gs = GaussianModel(self.gaussians.max_sh_degree, self.gaussians.optimizer_type)
                 bbox_gs.load_ply(bbox_path, [])
-                self.min_xyz = bbox_gs._xyz.min(dim=0).values
-                self.max_xyz = bbox_gs._xyz.max(dim=0).values
-            in_bbox_mask = (
-                (self.gaussians._xyz >= self.min_xyz) &
-                (self.gaussians._xyz <= self.max_xyz)
-            ).all(dim=1)
-            sub_gaussians = self.gaussians.get_sub_gaussian_model(in_bbox_mask)
+                bbox_xyz = bbox_gs._xyz
+                self.min_xyz = bbox_xyz.min(dim=0).values
+                self.max_xyz = bbox_xyz.max(dim=0).values
+                # voxel 大小（可调）
+                voxel_size = 0.02 * (self.max_xyz - self.min_xyz).max().clamp(min=1e-6)
+
+                # 将 bbox gaussians 映射到 voxel index
+                bbox_voxel_idx = torch.floor(
+                    (bbox_xyz - self.min_xyz) / voxel_size
+                ).long()   # [Nb, 3]
+                # 用 tuple 作为 hash key
+                self.mask_voxels = set(
+                    map(tuple, bbox_voxel_idx.cpu().numpy())
+                )
+
+            all_xyz = self.gaussians._xyz    # [N, 3]
+            all_voxel_idx = torch.floor(
+                (all_xyz - self.min_xyz) / voxel_size
+            ).long()  # [N, 3]
+
+            # 判断是否落在 mask voxel 中
+            in_mask = torch.tensor(
+                [tuple(v.tolist()) in self.mask_voxels for v in all_voxel_idx],
+                device=all_xyz.device,
+                dtype=torch.bool
+            )
+            sub_gaussians = self.gaussians.get_sub_gaussian_model(in_mask)
             sub_gaussians.save_ply(os.path.join(point_cloud_path, "point_cloud.ply"))
             # self.gaussians.save_ply(os.path.join(point_cloud_path, "full.ply"))
             
