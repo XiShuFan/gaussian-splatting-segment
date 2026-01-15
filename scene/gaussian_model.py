@@ -582,7 +582,7 @@ class GaussianModel:
         new_features_rest = feat_rest_rep
         new_tmp_radii = tmp_radii_rep
 
-        return new_xyz, new_features_dc, new_features_rest, new_opacity, new_scaling, new_rotation, new_tmp_radii
+        return N, new_xyz, new_features_dc, new_features_rest, new_opacity, new_scaling, new_rotation, new_tmp_radii
 
 
     def densify_and_split(self, grads, grad_threshold, scene_extent, max_screen_size, N=2):
@@ -633,14 +633,15 @@ class GaussianModel:
             # new_opacity = self._opacity[selected_pts_mask].repeat(N,1)
             # new_tmp_radii = self.tmp_radii[selected_pts_mask].repeat(N)
 
-            new_xyz, new_features_dc, new_features_rest, new_opacity, new_scaling, new_rotation, new_tmp_radii = self.anisotropy_split(selected_pts_mask)
+            N, new_xyz, new_features_dc, new_features_rest, new_opacity, new_scaling, new_rotation, new_tmp_radii = self.anisotropy_split(selected_pts_mask)
 
         self.densification_postfix(new_xyz, new_features_dc, new_features_rest, new_opacity, new_scaling, new_rotation, new_tmp_radii)
 
         if max_screen_size:
             prune_filter = torch.cat((selected_pts_mask, torch.zeros(N.sum(), device="cuda", dtype=bool)))
         else:
-            prune_filter = torch.cat((selected_pts_mask, torch.zeros(N * selected_pts_mask.sum(), device="cuda", dtype=bool)))
+            # prune_filter = torch.cat((selected_pts_mask, torch.zeros(N * selected_pts_mask.sum(), device="cuda", dtype=bool)))
+            prune_filter = torch.cat((selected_pts_mask, torch.zeros(N.sum(), device="cuda", dtype=bool)))
         
         self.prune_points(prune_filter)
 
