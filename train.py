@@ -47,10 +47,6 @@ except:
 
 def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoint_iterations, checkpoint, debug_from, is_bbox_locate):
     bbox_iter = opt.iterations
-    # 两倍
-    if not is_bbox_locate:
-        opt.iterations += opt.opacity_reset_interval # math.ceil(opt.iterations * 1.5)
-        saving_iterations.append(opt.iterations)
     
     if not SPARSE_ADAM_AVAILABLE and opt.optimizer_type == "sparse_adam":
         sys.exit(f"Trying to use sparse adam but it is not installed, please install the correct rasterizer using pip install [3dgs_accel].")
@@ -118,12 +114,11 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
             viewpoint_stack = scene.getTrainCameras().copy()
             # TODO 回填视角
             additional_views = []
-            if not is_bbox_locate:
-                view_mean_loss = statistics.mean(loss_per_view.values())
-                for view_iter in viewpoint_stack:
-                    view_loss_iter = loss_per_view[view_iter.image_name]
-                    additional_times = math.ceil(view_loss_iter / view_mean_loss) - 1
-                    additional_views += [view_iter] * additional_times
+            view_mean_loss = statistics.mean(loss_per_view.values())
+            for view_iter in viewpoint_stack:
+                view_loss_iter = loss_per_view[view_iter.image_name]
+                additional_times = math.ceil(view_loss_iter / view_mean_loss) - 1
+                additional_views += [view_iter] * additional_times
             viewpoint_stack += additional_views
             viewpoint_indices = list(range(len(viewpoint_stack)))
         rand_idx = randint(0, len(viewpoint_indices) - 1)
