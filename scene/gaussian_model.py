@@ -475,6 +475,116 @@ class GaussianModel:
         self.denom = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
         self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
 
+    def anisotropy_split(self, selected_pts_mask):
+        # ============================================
+        # Final: Anisotropy-aware Gaussian Split
+        # ============================================
+
+        # --------- 超参数 ----------
+        ratio_threshold = 2.0
+        min_splits = 2
+        max_splits = 8
+        split_ratio = 0.5
+        EPS = 1e-8
+
+        # --------- 取数据 ----------
+        scales = self.get_scaling[selected_pts_mask]        # (M,3) activated
+        xyz = self.get_xyz[selected_pts_mask]               # (M,3)
+        rot_q = self._rotation[selected_pts_mask]           # (M,4)
+        opacity = self._opacity[selected_pts_mask]
+        features_dc = self._features_dc[selected_pts_mask]
+        features_rest = self._features_rest[selected_pts_mask]
+        tmp_radii = self.tmp_radii[selected_pts_mask]
+
+        device = xyz.device
+        M = scales.shape[0]
+
+        # --------- 各向异性比例 ----------
+        sigma_max, max_idx = scales.max(dim=1)
+        sigma_min, _ = scales.min(dim=1)
+        ratio = sigma_max / (sigma_min + EPS)
+
+        # --------- 动态 N ----------
+        N = torch.ones(M, device=device, dtype=torch.long) * 2
+        mask = ratio > ratio_threshold
+        N[mask] = torch.clamp(
+            torch.ceil(ratio[mask] / ratio_threshold),
+            min=min_splits,
+            max=max_splits
+        ).long()
+
+        # --------- rotation matrix ----------
+        R = build_rotation(rot_q)                           # (M,3,3)
+
+        # --------- 最长轴方向 ----------
+        v_local = torch.zeros(M, 3, device=device)
+        v_local[torch.arange(M, device=device), max_idx] = 1.0
+
+        v_world = torch.bmm(R, v_local.unsqueeze(-1)).squeeze(-1)
+        v_norm = torch.norm(v_world, dim=1, keepdim=True)
+        v_world = torch.where(
+            v_norm > EPS,
+            v_world / v_norm,
+            torch.zeros_like(v_world)
+        )
+
+        # --------- repeat ----------
+        xyz_rep = torch.repeat_interleave(xyz, N, dim=0)
+        v_rep = torch.repeat_interleave(v_world, N, dim=0)
+        scales_rep = torch.repeat_interleave(scales, N, dim=0)
+        rot_rep = torch.repeat_interleave(rot_q, N, dim=0)
+        feat_dc_rep = torch.repeat_interleave(features_dc, N, dim=0)
+        feat_rest_rep = torch.repeat_interleave(features_rest, N, dim=0)
+        opacity_rep = torch.repeat_interleave(opacity, N, dim=0)
+        tmp_radii_rep = torch.repeat_interleave(tmp_radii, N, dim=0)
+        max_idx_rep = torch.repeat_interleave(max_idx, N, dim=0)
+        sigma_max_rep = torch.repeat_interleave(sigma_max, N, dim=0)
+        N_rep = torch.repeat_interleave(N, N, dim=0)
+
+        # --------- offsets（沿最长轴切） ----------
+        offsets = []
+        for i in range(M):
+            k = N[i]
+            if k == 1:
+                offsets.append(torch.zeros(1, device=device))
+            else:
+                t = torch.linspace(
+                    -(k - 1) / 2.0,
+                    (k - 1) / 2.0,
+                    k,
+                    device=device
+                )
+                offsets.append(t * sigma_max[i] * split_ratio)
+
+        offsets = torch.cat(offsets, dim=0)
+
+        # --------- 新位置 ----------
+        new_xyz = xyz_rep + offsets.unsqueeze(-1) * v_rep
+
+        # --------- 新尺度（只压最长轴） ----------
+        new_scales = scales_rep.clone()
+        new_scales[
+            torch.arange(new_scales.shape[0], device=device),
+            max_idx_rep
+        ] = new_scales[
+            torch.arange(new_scales.shape[0], device=device),
+            max_idx_rep
+        ] / (N_rep.float() + EPS)
+
+        new_scaling = self.scaling_inverse_activation(new_scales)
+
+        # --------- opacity 守恒 ----------
+        new_opacity = opacity_rep / (N_rep.unsqueeze(-1).float() + EPS)
+
+        # --------- 输出 ----------
+        new_rotation = rot_rep
+        new_features_dc = feat_dc_rep
+        new_features_rest = feat_rest_rep
+        new_tmp_radii = tmp_radii_rep
+
+        return new_xyz, new_features_dc, new_features_rest, new_opacity, new_scaling, new_rotation, new_tmp_radii
+
+
     def densify_and_split(self, grads, grad_threshold, scene_extent, max_screen_size, N=2):
         n_init_points = self.get_xyz.shape[0]
         # Extract points that satisfy the gradient condition
@@ -511,17 +621,19 @@ class GaussianModel:
             new_opacity = torch.repeat_interleave(self._opacity[selected_pts_mask], N, dim=0)
             new_tmp_radii = torch.repeat_interleave(self.tmp_radii[selected_pts_mask], N, dim=0)
         else:
-            stds = self.get_scaling[selected_pts_mask].repeat(N,1)
-            means =torch.zeros((stds.size(0), 3),device="cuda")
-            samples = torch.normal(mean=means, std=stds)
-            rots = build_rotation(self._rotation[selected_pts_mask]).repeat(N,1,1)
-            new_xyz = torch.bmm(rots, samples.unsqueeze(-1)).squeeze(-1) + self.get_xyz[selected_pts_mask].repeat(N, 1)
-            new_scaling = self.scaling_inverse_activation(self.get_scaling[selected_pts_mask].repeat(N,1) / (0.8*N))
-            new_rotation = self._rotation[selected_pts_mask].repeat(N,1)
-            new_features_dc = self._features_dc[selected_pts_mask].repeat(N,1,1)
-            new_features_rest = self._features_rest[selected_pts_mask].repeat(N,1,1)
-            new_opacity = self._opacity[selected_pts_mask].repeat(N,1)
-            new_tmp_radii = self.tmp_radii[selected_pts_mask].repeat(N)
+            # stds = self.get_scaling[selected_pts_mask].repeat(N,1)
+            # means =torch.zeros((stds.size(0), 3),device="cuda")
+            # samples = torch.normal(mean=means, std=stds)
+            # rots = build_rotation(self._rotation[selected_pts_mask]).repeat(N,1,1)
+            # new_xyz = torch.bmm(rots, samples.unsqueeze(-1)).squeeze(-1) + self.get_xyz[selected_pts_mask].repeat(N, 1)
+            # new_scaling = self.scaling_inverse_activation(self.get_scaling[selected_pts_mask].repeat(N,1) / (0.8*N))
+            # new_rotation = self._rotation[selected_pts_mask].repeat(N,1)
+            # new_features_dc = self._features_dc[selected_pts_mask].repeat(N,1,1)
+            # new_features_rest = self._features_rest[selected_pts_mask].repeat(N,1,1)
+            # new_opacity = self._opacity[selected_pts_mask].repeat(N,1)
+            # new_tmp_radii = self.tmp_radii[selected_pts_mask].repeat(N)
+
+            new_xyz, new_features_dc, new_features_rest, new_opacity, new_scaling, new_rotation, new_tmp_radii = self.anisotropy_split(selected_pts_mask)
 
         self.densification_postfix(new_xyz, new_features_dc, new_features_rest, new_opacity, new_scaling, new_rotation, new_tmp_radii)
 
