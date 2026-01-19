@@ -209,8 +209,8 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
             Ll1depth = 0
         
         # 更新当前视角损失
-        if not is_bbox_locate:
-            loss = loss * 0.6 + foreground_loss * 0.4
+        # if not is_bbox_locate:
+        #     loss = loss * 0.6 + foreground_loss * 0.4
 
         loss_per_view[view_name] = loss_per_view.get(view_name, 0) * 0.6 + loss.item() * 0.4
         # 计算当前所有视角的平均损失，计算权重
@@ -222,7 +222,6 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         
         # 小于1的权重设置为1
         per_view_loss_weight = max(per_view_loss_weight, 1.0)
-        loss *= per_view_loss_weight
 
         loss.backward()
 
