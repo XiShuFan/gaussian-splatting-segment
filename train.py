@@ -147,7 +147,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         if is_bbox_locate:
             zero_mask = foreground_mask.squeeze(0) < 1e-6
             # 掩码外为黑色
-            gt_image[:, zero_mask] = 0.0
+            gt_image[:, zero_mask] = bg[:, None]
             gt_mask = None
         else:
             gt_mask = None
