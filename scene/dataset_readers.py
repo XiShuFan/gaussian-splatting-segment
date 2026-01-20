@@ -22,6 +22,7 @@ from pathlib import Path
 from plyfile import PlyData, PlyElement
 from utils.sh_utils import SH2RGB
 from scene.gaussian_model import BasicPointCloud
+import math
 
 class CameraInfo(NamedTuple):
     uid: int
@@ -103,6 +104,9 @@ def readColmapCameras(cam_extrinsics, cam_intrinsics, depths_params, images_fold
             FovX = focal2fov(focal_length_x, width)
         else:
             assert False, "Colmap camera model not handled: only undistorted datasets (PINHOLE or SIMPLE_PINHOLE cameras) supported!"
+
+        # 固定视野角，和super splat保持一致
+        FovX = FovY = math.radians(65.0)
 
         n_remove = len(extr.name.split('.')[-1]) + 1
         depth_params = None
